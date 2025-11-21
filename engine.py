@@ -1,8 +1,11 @@
 import json
 import re
-import requests
+# Importar httpx no lugar de requests
+import httpx 
 from typing import Dict, Any, TypedDict, Literal
-from langgraph.graph import StateGraph, END
+# Importar AsyncNodes e AsyncStateGraph
+from langgraph.graph import StateGraph, END, START 
+from langgraph.graph.state import StateGraph, END
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
@@ -22,11 +25,15 @@ class FlowEngine:
         self.nodes_map = {node["id"]: node for node in flow_config["nodes"]}
         self.expression_parser = Parser()
         # Inicializar LLM (ajuste a API KEY conforme necessário)
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0) 
+        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        # Inicializar o cliente HTTPX
+        self.http_client = httpx.AsyncClient() 
+
+    # --- Funções Auxiliares (Não precisam ser assíncronas, exceto se usarem chamadas bloqueantes) ---
 
     def _update_context(self, current_context: dict, updates: dict, remove_keys: list = None):
         """Atualiza e limpa o contexto."""
-        # Renderiza os valores antes de atualizar
+        # ... (Mantém a implementação atual)
         rendered_updates = render_data(updates, current_context)
         current_context.update(rendered_updates)
         
@@ -34,44 +41,10 @@ class FlowEngine:
             for key in remove_keys:
                 current_context.pop(key, None)
         return current_context
-    
-    def _get_value_by_path(self, data: dict, path: str):
-        """Acessa um valor aninhado em um dicionário usando notação de ponto."""
-        keys = path.split('.')
-        for key in keys:
-            try:
-                data = data[key]
-            except (KeyError, TypeError):
-                return None
-        return data
-    
-    def _evaluate_condition(self, condition: str, context: dict) -> bool:
-        """Avalia uma expressão de condição de forma segura, resolvendo caminhos aninhados."""
-        if condition.lower() == 'true':
-            return True
-        if condition.lower() == 'false':
-            return False
 
-        # Regex para encontrar todas as variáveis com notação de ponto (ex: contexto.a.b)
-        variable_paths = re.findall(r'([a-zA-Z_][a-zA-Z0-9_.]*)', condition)
-        
-        # Cria um dicionário plano com os valores resolvidos do contexto
-        flat_variables = {}
-        for path in variable_paths:
-            # Evita tentar resolver operadores como 'and', 'or', e valores literais
-            if path in self.expression_parser.ops1 or path in self.expression_parser.ops2 or path.lower() in ['true', 'false']:
-                continue
-            
-            # A chave no dicionário plano é o próprio caminho
-            # O valor é buscado no dicionário de contexto aninhado
-            flat_variables[path] = self._get_value_by_path(context, path.replace('contexto.', '', 1))
-
-        # Agora, a biblioteca recebe as variáveis que ela espera
-        # Ex: {'contexto.internals.intencao': 'status_pedido'}
-        return self.expression_parser.parse(condition).evaluate(flat_variables)
     
-    
-    def _execute_node(self, state: FlowState):
+    # Torna a função de execução de nó assíncrona
+    async def _execute_node(self, state: FlowState):
         node_id = state["current_node"]
         node_config = self.nodes_map[node_id]
         context = state["context"]
@@ -96,50 +69,57 @@ class FlowEngine:
             headers = action_config.get("headers", {})
             body = action_config.get("body", None)
             
-            # Conversão simples de string para JSON se necessário
             if isinstance(body, str):
                 try: body = json.loads(body)
                 except: pass
 
-            response = requests.request(method, url, headers=headers, json=body)
-            try:
-                action_result = {"status": response.status_code, "data": response.json()}
-            except:
-                action_result = {"status": response.status_code, "text": response.text}
+            # !!! SUBSTITUIÇÃO CHAVE: Usar httpx.AsyncClient para chamadas assíncronas !!!
+            # O `aclose()` garante que a conexão seja fechada.
+            async with self.http_client as client:
+                try:
+                    # Usa await para esperar a requisição assíncrona
+                    response = await client.request(method, url, headers=headers, json=body, timeout=60.0) 
+                    response.raise_for_status() # Lança exceção para status 4xx/5xx
+
+                    try:
+                        action_result = {"status": response.status_code, "data": response.json()}
+                    except:
+                        action_result = {"status": response.status_code, "text": response.text}
+                except httpx.HTTPStatusError as e:
+                    print(f"Erro HTTP: {e}")
+                    action_result = {"error": f"HTTP Error: {e.response.status_code}", "status": e.response.status_code}
+                except httpx.RequestError as e:
+                    print(f"Erro de Requisição: {e}")
+                    action_result = {"error": f"Request Error: {e}"}
 
         elif node_type == "llm":
             prompt = action_config["prompt"]
-            msg = self.llm.invoke([HumanMessage(content=prompt)])
+            # A chamada para self.llm.invoke é síncrona, mas a LangChain oferece
+            # 'ainvoke' para uso assíncrono.
+            msg = await self.llm.ainvoke([HumanMessage(content=prompt)]) 
             action_result = {"response": msg.content}
 
         elif node_type == "input":
+            # O 'input()' do Python é inerentemente bloqueante e não pode ser tornado 
+            # assíncrono diretamente. Em um ambiente de produção (web/API), o input 
+            # seria a entrada de uma nova mensagem do usuário, que seria assíncrona.
+            # Manteremos síncrono para fins de teste no console, mas lembre-se do bloqueio.
             prompt_text = action_config.get("message", "Insira um valor:")
             user_input = input(f">> {prompt_text} ")
             action_result = {"value": user_input}
 
         elif node_type == "fixed":
             action_result = action_config.get("data", {})
-        # elif node_type == "switch-case":
-        #     destinations = {v: v for v in node_config["action_config"]["cases"].values()}
-        #     if "default" in node_config["action_config"]:
-        #         destinations["default"] = node_config["action_config"]["default"]
+        
         elif node_type == "if-else":
-            # next_node_id = node_id
             action_result = render_data(node_config["action_config"]["condition"], context)
             next_node_id = (node_config["action_config"]["true_node"] if eval(action_result) 
                             else node_config["action_config"]["false_node"])
-            # self._evaluate_condition(
-            #     node_config["action_config"]["condition"], context
-            # )
 
-        # Condicionais não geram resultado de ação "externa", apenas lógica de navegação
-        
         # 3. Post-Update Context (Injetar resultado da ação no contexto)
-        # Criamos um contexto temporário com o resultado para permitir mapeamento
         temp_context_for_mapping = {**context, "result": action_result}
         
         if "post_update" in node_config:
-            # O post_update usa o 'result' para popular o contexto principal
             updates = render_data(node_config["post_update"], temp_context_for_mapping)
             context.update(updates)
             
@@ -148,88 +128,69 @@ class FlowEngine:
                 context.pop(key, None)
 
         # 4. Determinar a Transição
-        # Para nós não condicionais, a transição é definida por 'next' no JSON.
-        # Nós condicionais usam o roteador (_router) e não precisam retornar o next aqui.
         next_node_id = next_node_id or node_config.get("next")
         state["current_node"] = next_node_id
         
-        # O estado deve ser atualizado. Se for um nó condicional, o roteador irá decidir a transição.
-        # Caso contrário, retornamos apenas o estado e a aresta no build_graph cuida da transição.
         state["context"] = context
         return state
 
+    # --- Função de Callback do END ---
+
+    async def _print_final_message(self, state: FlowState):
+        """Callback executado ao atingir o END: Imprime a final_message do contexto."""
+        final_message = state["context"].get("final_message", "Fluxo finalizado sem 'final_message' definida no contexto.")
+        
+        # O print assíncrono não existe, mas a função em si é um `async def` para ser 
+        # aceita pelo `langgraph` como um executor do END.
+        print("\n" + "="*50)
+        print(">>> FIM DO FLUXO: MENSAGEM FINAL (Contexto) <<<")
+        print(f"Mensagem: {final_message}")
+        print("="*50 + "\n")
+        
+        # É importante retornar o estado para que o histórico seja mantido
+        return state
+
+    # --- Roteador e Build do Grafo ---
+
     def _router(self, state: FlowState) -> str:
         """Decide o próximo nó baseado em lógica condicional ou fluxo simples."""
+        # Se 'current_node' for None/vazio, o fluxo acabou, o LangGraph usa END.
         return state["current_node"] or END
         
-        # if node_id == END:
-        #     return END
-    
-        # node_config = self.nodes_map[node_id]
-        # context = state["context"]
+    async def build_graph(self):
+        workflow = StateGraph(FlowState) 
+
+        # 1. Adicionar o nó de finalização
+        # É preciso dar um ID para a função de callback e adicioná-la como um nó.
+        FINAL_NODE_ID = "flow_end_callback"
+        workflow.add_node(FINAL_NODE_ID, self._print_final_message)
         
-        # node_type = node_config["type"]
-
-        # if node_type == "switch-case":
-        #     variable = render_data(node_config["action_config"]["variable"], context)
-        #     cases = node_config["action_config"]["cases"]
-        #     next_node = cases.get(variable, node_config["action_config"].get("default", END))
-        #     return next_node
-
-        # elif node_type == "if-else":
-        #     # Renderiza a condição como string e avalia (cuidado com eval em prod)
-        #     condition_str = render_data(node_config["action_config"]["condition"], context)
-        #     # Exemplo simples: convertendo "True"/"False" string ou avaliando
-        #     try:
-        #         is_true = eval(condition_str) # Em produção, use um avaliador seguro de expressões
-        #     except:
-        #         is_true = False
-            
-        #     return node_config["action_config"]["true_node"] if is_true else node_config["action_config"]["false_node"]
-
-        # # Fluxo padrão
-        # return node_config.get("next", END)
-
-    def build_graph(self):
-        workflow = StateGraph(FlowState)
-
-        # Adicionar nós ao grafo
+        # Adicionar nós normais ao grafo
         for node in self.config["nodes"]:
-            # Usamos functools.partial ou lambdas se precisarmos passar args, 
-            # mas aqui o node ID está no estado, então usamos uma função genérica
             workflow.add_node(node["id"], self._execute_node)
 
         # Definir ponto de entrada
-        start_node_id = self.config["nodes"][0]["id"] # Assume o primeiro como inicial
+        start_node_id = self.config["nodes"][0]["id"]
         workflow.set_entry_point(start_node_id)
 
         # Adicionar arestas
         for node in self.config["nodes"]:
             if node["type"] in ["switch-case", "if-else"]:
-                # Arestas condicionais
-                # # Precisamos mapear todos os destinos possíveis para o LangGraph saber
-                # destinations = {}
-                # if node["type"] == "switch-case":
-                #     destinations = {v: v for v in node["action_config"]["cases"].values()}
-                #     if "default" in node["action_config"]:
-                #         destinations["default"] = node["action_config"]["default"]
-                # elif node["type"] == "if-else":
-                #     destinations = {
-                #         "true": node["action_config"]["true_node"],
-                #         "false": node["action_config"]["false_node"]
-                #     }
-                
-                # Mapeamento para o roteador
                 workflow.add_conditional_edges(
                     node["id"],
                     self._router,
-                    # destinations
                 )
             else:
                 # Aresta normal
                 if "next" in node:
                     workflow.add_edge(node["id"], node["next"])
                 else:
-                    workflow.add_edge(node["id"], END)
+                    # CORREÇÃO CHAVE: Usar o ID do nó de callback recém-criado
+                    workflow.add_edge(node["id"], FINAL_NODE_ID)
 
+        # 2. Conectar o nó de callback ao END do fluxo
+        # Após a mensagem final ser impressa, o fluxo realmente termina.
+        workflow.add_edge(FINAL_NODE_ID, END)
+
+        # Compilar e retornar o *Runnable*
         return workflow.compile()

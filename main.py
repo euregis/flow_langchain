@@ -1,3 +1,4 @@
+import asyncio
 import json
 from dotenv import load_dotenv # Importar a função
 from engine import FlowEngine
@@ -93,24 +94,30 @@ flow_json = {
 }
 
 
-def main():
+async def main():
     store = InMemoryStore()
-    # O FlowEngine agora encontrará a chave de API automaticamente
     engine = FlowEngine(flow_json, store) 
-    app = engine.build_graph()
+    
+    # CHAVE 1: Use 'await' para compilar o grafo assíncrono
+    app = await engine.build_graph()
 
     initial_state = {
         "context": {},
         "current_node": "setup" 
     }
 
-    print(">>> Iniciando Fluxo <<<")
+    print(">>> Iniciando Fluxo Assíncrono <<<")
     
-    for output in app.stream(initial_state):
+    # CORREÇÃO CHAVE: Troque .stream() por .astream() 
+    # O .astream() retorna um AsyncIterator que é compatível com o 'async for'.
+    async for output in app.astream(initial_state):
+        # Aqui você pode inspecionar o estado a cada passo
+        # print(f"Estado Atual: {output}") 
         pass 
     
-    print("\n>>> Fluxo Finalizado. Contexto Final: <<<")
+    print("\n>>> Fluxo Finalizado. Verifique a mensagem final acima. <<<")
+    # final_state = await app.ainvoke(initial_state)
 
 
 if __name__ == "__main__":
-    main()  
+    asyncio.run(main())  

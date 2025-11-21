@@ -24,6 +24,6 @@ Um motor de execução de fluxos parametrizáveis definidos em JSON, utilizando 
 # git clone <URL_DO_REPO>
 # cd flow-engine-python
 
-pip install langgraph langchain-openai jinja2 requests python-dotenv py_expression_eval
+pip install langgraph langchain-openai jinja2 requests python-dotenv py_expression_eval httpx
 # Se for usar Redis no futuro:
 # pip install redis
