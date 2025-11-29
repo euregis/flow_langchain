@@ -1,0 +1,83 @@
+{
+    "nodes": [
+        {
+            "id": "setup",
+            "type": "fixed",
+            "action_config": {},
+            "pre_update": {
+                "initial": {
+                    "api_base": "https://pokeapi.co/api/v2/pokemon"
+                }
+            },
+            "next": "ask_user"
+        },
+        {
+            "id": "ask_user",
+            "type": "output",
+            "action_config": {
+                "message": "Informe o nome ou ID de um Pokemon (ex: pikachu, 1, 25)"
+            },
+            "next": "user_input"
+        },
+        {
+            "id": "user_input",
+            "type": "input",
+            "post_update": {
+                "pokemon_id": "{{ context.user_inputs[0].content.text}}"
+            },
+            "next": "get_pokemon"
+        },
+        {
+            "id": "get_pokemon",
+            "type": "api",
+            "action_config": {
+                "url": "{{ context.initial.api_base }}/{{ context.pokemon_id }}",
+                "method": "GET"
+            },
+            "post_update": {
+                "poke_data": {
+                    "name": "{{ context.result.data.name }}",
+                    "weight": "{{ context.result.data.weight }}"
+                }
+            },
+            "next": "check_weight"
+        },
+        {
+            "id": "check_weight",
+            "type": "if-else",
+            "action_config": {
+                "condition": "{{ context.poke_data.weight | int > 100 }}",
+                "true_node": "joke_node",
+                "false_node": "simple_print"
+            }
+        },
+        {
+            "id": "joke_node",
+            "type": "llm",
+            "action_config": {
+                "prompt": "Faça uma piada curta sobre um Pokémon gordo chamado {{ context.poke_data.name }} que pesa {{ context.poke_data.weight }}."
+            },
+            "post_update": {
+                "final_message": "{{ context.result.response }}"
+            },
+            "next": "end_node"
+        },
+        {
+            "id": "simple_print",
+            "type": "fixed",
+            "action_config": {},
+            "post_update": {
+                "final_message": "O Pokémon {{ context.poke_data.name }} é levinho."
+            },
+            "next": "end_node"
+        },
+        {
+            "id": "end_node",
+            "type": "fixed",
+            "action_config": {},
+            "pre_update": {
+                "status": "completed"
+            }
+        }
+    ]
+}

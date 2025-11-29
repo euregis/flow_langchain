@@ -1,0 +1,23 @@
+POST http://localhost:8000/execute/flow_definition.json
+Content-Type: application/json
+x-user-id: test-user-126
+
+{
+    "messages": []
+}
+
+###
+
+POST http://localhost:8000/execute/flow_definition.json
+Content-Type: application/json
+x-user-id: test-user-126
+
+{
+    "messages": [{
+            "type":"text",
+            "content":{
+                "text":"pikachu"
+            } 
+        }
+    ]
+}

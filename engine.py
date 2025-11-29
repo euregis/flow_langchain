@@ -2,12 +2,13 @@ import json
 import re
 # Importar httpx no lugar de requests
 import httpx 
-from typing import Dict, Any, TypedDict, Literal
+from typing import Dict, Any, List, TypedDict, Literal
 # Importar AsyncNodes e AsyncStateGraph
 from langgraph.graph import StateGraph, END, START 
 from langgraph.graph.state import StateGraph, END
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
+from pydantic import BaseModel
 
 from storage import ContextStore
 from templates import render_data
@@ -17,11 +18,15 @@ from py_expression_eval import Parser
 class FlowState(TypedDict):
     context: Dict[str, Any]
     current_node: str
-
+    status: Literal["running", "waiting_input", "completed"]
+class Message(BaseModel):
+    type: str
+    content: Dict[str, Any]
 class FlowEngine:
-    def __init__(self, flow_config: dict, store: ContextStore):
+    def __init__(self, flow_config: dict, user_id:str, store: ContextStore):
         self.config = flow_config
         self.store = store
+        self.user_id = user_id
         self.nodes_map = {node["id"]: node for node in flow_config["nodes"]}
         self.expression_parser = Parser()
         # Inicializar LLM (ajuste a API KEY conforme necessário)
@@ -40,15 +45,19 @@ class FlowEngine:
         if remove_keys:
             for key in remove_keys:
                 current_context.pop(key, None)
+        self.store.save_context(self.user_id, current_context)  # Salva o contexto atualizado
         return current_context
 
     
     # Torna a função de execução de nó assíncrona
     async def _execute_node(self, state: FlowState):
-        node_id = state["current_node"]
-        node_config = self.nodes_map[node_id]
         context = state["context"]
+        # context = self.store.get_context(self.user_id)
+        node_id = context.get("current_node",state["current_node"])
+        node_config = self.nodes_map[node_id]
+        # context = state["context"]
         next_node_id = None
+        status = "running"
 
         print(f"\n--- Executando Nó: {node_id} ({node_config['type']}) ---")
 
@@ -69,16 +78,30 @@ class FlowEngine:
             headers = action_config.get("headers", {})
             body = action_config.get("body", None)
             
-            if isinstance(body, str):
-                try: body = json.loads(body)
-                except: pass
+            # Determine if we should send as JSON or content
+            json_body = None
+            content_body = None
+            
+            if isinstance(body, (dict, list)):
+                json_body = body
+            elif isinstance(body, str):
+                try: 
+                    json_body = json.loads(body)
+                except:
+                    content_body = body
+            else:
+                json_body = body
 
             # !!! SUBSTITUIÇÃO CHAVE: Usar httpx.AsyncClient para chamadas assíncronas !!!
             # O `aclose()` garante que a conexão seja fechada.
             async with self.http_client as client:
                 try:
                     # Usa await para esperar a requisição assíncrona
-                    response = await client.request(method, url, headers=headers, json=body, timeout=60.0) 
+                    if json_body is not None:
+                        response = await client.request(method, url, headers=headers, json=json_body, timeout=60.0)
+                    else:
+                        response = await client.request(method, url, headers=headers, content=content_body, timeout=60.0)
+                    
                     response.raise_for_status() # Lança exceção para status 4xx/5xx
 
                     try:
@@ -97,16 +120,39 @@ class FlowEngine:
             # A chamada para self.llm.invoke é síncrona, mas a LangChain oferece
             # 'ainvoke' para uso assíncrono.
             msg = await self.llm.ainvoke([HumanMessage(content=prompt)]) 
-            action_result = {"response": msg.content}
+            # Garantir que o conteúdo seja corretamente decodificado como UTF-8
+            response_content = msg.content
+            if isinstance(response_content, bytes):
+                response_content = response_content.decode('utf-8')
+            action_result = {"response": response_content}
 
-        elif node_type == "input":
-            # O 'input()' do Python é inerentemente bloqueante e não pode ser tornado 
-            # assíncrono diretamente. Em um ambiente de produção (web/API), o input 
-            # seria a entrada de uma nova mensagem do usuário, que seria assíncrona.
-            # Manteremos síncrono para fins de teste no console, mas lembre-se do bloqueio.
+        # elif node_type == "input":
+            # prompt_text = action_config.get("message", "Insira um valor:")
+            
+            # # Tenta obter o input do contexto (injetado pela API)
+            # user_inputs = context.get("user_inputs", {})
+            # if user_inputs:
+            #    messages: List[Message] = [Message(**item) for item in user_inputs]
+            
+            # # action_result = {"value": user_input}
+
+            # status = "waiting_input"
+        elif node_type == "output":
             prompt_text = action_config.get("message", "Insira um valor:")
-            user_input = input(f">> {prompt_text} ")
-            action_result = {"value": user_input}
+            
+            # Tenta obter o input do contexto (injetado pela API)
+            user_inputs = context.get("user_inputs", {})
+            if node_id in user_inputs:
+                user_input = user_inputs[node_id]
+                print(f">> Input para '{node_id}' recebido via contexto: {user_input}")
+            else:
+                context["final_message"] = prompt_text
+                # Fallback para input interativo (apenas para testes locais)
+                # user_input = input(f">> {prompt_text} ")
+            
+            # action_result = {"value": user_input}
+
+            status = "waiting_input"
 
         elif node_type == "fixed":
             action_result = action_config.get("data", {})
@@ -132,6 +178,9 @@ class FlowEngine:
         state["current_node"] = next_node_id
         
         state["context"] = context
+        state["status"] = status
+        
+        # self.store.save_state(self.user_id, state)  #
         return state
 
     # --- Função de Callback do END ---
