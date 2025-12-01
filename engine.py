@@ -23,16 +23,22 @@ class Message(BaseModel):
     type: str
     content: Dict[str, Any]
 class FlowEngine:
-    def __init__(self, flow_config: dict, user_id:str, store: ContextStore):
+    # Agora recebemos llm, http_client e parser prontos
+    def __init__(self, flow_config: dict, user_id: str, store: ContextStore, 
+            llm: ChatOpenAI, http_client: httpx.AsyncClient, parser: Parser):
+        
         self.config = flow_config
         self.store = store
         self.user_id = user_id
+        # Mapeamento é rápido, pode ficar aqui (é O(N) simples)
         self.nodes_map = {node["id"]: node for node in flow_config["nodes"]}
-        self.expression_parser = Parser()
-        # Inicializar LLM (ajuste a API KEY conforme necessário)
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-        # Inicializar o cliente HTTPX
-        self.http_client = httpx.AsyncClient() 
+        
+        # Referências aos objetos globais (Leve, apenas ponteiros)
+        self.expression_parser = parser
+        self.llm = llm 
+        self.http_client = http_client
+
+    # Lembre-se: Não feche o http_client aqui dentro se ele for compartilhado!
 
     # --- Funções Auxiliares (Não precisam ser assíncronas, exceto se usarem chamadas bloqueantes) ---
 
