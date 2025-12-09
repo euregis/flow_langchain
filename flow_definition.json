@@ -17,7 +17,10 @@
             "action_config": {
                 "message": "Informe o nome ou ID de um Pokemon (ex: pikachu, 1, 25)"
             },
-            "next": "user_input"
+            "post_update": {
+                "pokemon_id": "{{ context.user_inputs[0].content.text}}"
+            },
+            "next": "get_pokemon"
         },
         {
             "id": "user_input",

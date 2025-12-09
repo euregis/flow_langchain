@@ -13,13 +13,14 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from py_expression_eval import Parser
 from engine import FlowEngine
-from storage import InMemoryStore
+# from storage import InMemoryStore
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import Command
 
 # Load environment variables
 load_dotenv()
 
-
-
+memory = MemorySaver()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- INICIALIZAÇÃO (Roda 1 vez no boot) ---
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
     global_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     global_http_client = httpx.AsyncClient() # Cria o pool de conexão
     global_parser = Parser()
+    # global memory = MemorySaver()
     
     yield # A aplicação roda aqui
     
@@ -37,7 +39,7 @@ async def lifespan(app: FastAPI):
     await global_http_client.aclose()
 
 app = FastAPI(title="Flow Execution API", lifespan=lifespan)
-store = InMemoryStore() 
+# store = InMemoryStore() 
 
 # Variáveis globais ou Estado da Aplicação
 global_llm = None
@@ -94,6 +96,8 @@ async def execute_flow(
     - **inputs**: Optional dictionary of inputs to pass to the flow (mapped by node ID)
     - **x-user-id**: Header to identify the user/session
     """
+    config = {"configurable": {"thread_id": x_user_id}}
+    
     # --- No seu endpoint/bloco principal ---
     inicio = time.perf_counter()
 
@@ -117,7 +121,8 @@ async def execute_flow(
     engine = FlowEngine(
         flow_config=flow_config, 
         user_id=x_user_id, 
-        store=store,
+        # store=store,
+        memory=memory,
         llm=global_llm,              # Já está pronto na memória
         http_client=global_http_client, # Pool de conexão aberto
         parser=global_parser
@@ -144,16 +149,48 @@ async def execute_flow(
         raise HTTPException(status_code=500, detail="Built flow app does not expose an async 'astream' method.")
     
     # 4. Prepare Initial State
+    snapshot = await flow_app.aget_state(config)
+    
+    state = None
     initial_state = {
         "context": {
             "user_id": x_user_id # Inject user_id into context if needed by nodes
         },
         "current_node": flow_config["nodes"][0]["id"]
     }
-    state = store.get_state(x_user_id) or initial_state
+    
+    if snapshot.next:
+        print(f"🔄 Retomando sessão {x_user_id}...")
+        # Criamos o comando de resume com a mensagem do usuário
+        state = Command(resume=request.messages)
+        # valor_resume = None
+        # if request.messages and len(request.messages) > 0:
+        #     # Assume que quer o texto da primeira mensagem enviada
+        #     primeira_msg = request.messages[0]
+        #     # Acessa o dict 'content' e pega a chave 'text'
+        #     if isinstance(primeira_msg.content, dict):
+        #         valor_resume = primeira_msg.content.get("text")
+        #     else:
+        #         valor_resume = primeira_msg.content # Fallback
+        
+        # # Se não enviou nada, usa None ou trata erro
+        # if valor_resume is None:
+        #      raise HTTPException(status_code=400, detail="Nenhum texto encontrado na mensagem para resume.")
+
+        # # Agora enviamos apenas a STRING "pikachu"
+        # state = Command(resume=valor_resume)
+    
+    # Cenário B: O workflow não existe ou já terminou
+    else:
+        print(f"▶️ Iniciando nova sessão {x_user_id}...")
+        # Criamos o input inicial padrão
+        state = initial_state
+    # state = store.get_state(x_user_id) or initial_state
     # Ensure context dict exists and inject inputs into context
-    state.setdefault("context", {})
-    state["context"]["user_inputs"] = request.messages
+    # state.setdefault("context", {})
+    # state["context"]["user_inputs"] = request.messages
+    
+    
     print(f"[{x_user_id}] Starting flow '{flow_name}' with inputs: {request.messages}")
 
     # 5. Execute Flow
@@ -164,7 +201,7 @@ async def execute_flow(
         final_context = {}
         final_message = None
 
-        async for output in flow_app.astream(state):
+        async for output in flow_app.astream(state, config):
             print(f"[{x_user_id}] Flow step output: {output}, flow app: {flow_app}")
 
             # Normalize output shape. Some nodes emit: {"node_id": { ... }}
@@ -180,7 +217,7 @@ async def execute_flow(
             if inner is None:
                 inner = output if isinstance(output, dict) else {}
 
-            store.save_state(x_user_id, inner)
+            # store.save_state(x_user_id, inner)
             # Extract fields with fallbacks to previous values
             status = inner.get("status", status)
             final_context = inner.get("context", final_context)
@@ -191,24 +228,48 @@ async def execute_flow(
                 status = final_context.get("status", status)
 
             # If the flow is waiting for input, return current state to caller
-            if status == "waiting_input":
-                return JSONResponse(
-                    content={
-                        "status": status,
-                        "message": final_message,
-                    },
-                    media_type="application/json; charset=utf-8"
-                )
+            # if status == "waiting_input":
+            #     return JSONResponse(
+            #         content={
+            #             "status": status,
+            #             "message": final_message,
+            #         },
+            #         media_type="application/json; charset=utf-8"
+            #     )
     
         # Extract relevant results
         
-        return JSONResponse(
-            content={
-                "status": status,
-                "message": final_message,
-            },
-            media_type="application/json; charset=utf-8"
-        )
+        snapshot_final = await flow_app.aget_state(config)
+        
+        if snapshot_final.next:
+            # Acessamos a informação do interrupt
+            # Geralmente é a primeira tarefa da lista
+            tarefa_atual = snapshot_final.tasks[0]
+            
+            # O valor passado dentro da função interrupt("Mensagem") está aqui:
+            mensagem_interrupt = tarefa_atual.interrupts[0].value
+            
+            return JSONResponse(
+                content={
+                    "status": "waiting_input",
+                    "message": mensagem_interrupt,
+                },
+                media_type="application/json; charset=utf-8"
+            )
+            
+        # CENÁRIO B: O grafo terminou todo o processo
+        else:
+            # Aqui você pega o resultado final do state, se houver
+            # resposta_api["status_workflow"] = "finalizado"
+            # Ex: resposta_api["resultado"] = snapshot_final.values.get("context")
+        
+            return JSONResponse(
+                content={
+                    "status": status,
+                    "message": final_message,
+                },
+                media_type="application/json; charset=utf-8"
+            )
         
     except Exception as e:
         print(f"[{x_user_id}] Error executing flow: {e}")

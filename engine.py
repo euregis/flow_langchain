@@ -8,6 +8,8 @@ from langgraph.graph import StateGraph, END, START
 from langgraph.graph.state import StateGraph, END
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import interrupt
 from pydantic import BaseModel
 
 from storage import ContextStore
@@ -24,11 +26,12 @@ class Message(BaseModel):
     content: Dict[str, Any]
 class FlowEngine:
     # Agora recebemos llm, http_client e parser prontos
-    def __init__(self, flow_config: dict, user_id: str, store: ContextStore, 
+    def __init__(self, flow_config: dict, user_id: str,  memory: MemorySaver, #store: ContextStore,
             llm: ChatOpenAI, http_client: httpx.AsyncClient, parser: Parser):
         
         self.config = flow_config
-        self.store = store
+        # self.store = store
+        self.memory = memory
         self.user_id = user_id
         # Mapeamento é rápido, pode ficar aqui (é O(N) simples)
         self.nodes_map = {node["id"]: node for node in flow_config["nodes"]}
@@ -51,7 +54,7 @@ class FlowEngine:
         if remove_keys:
             for key in remove_keys:
                 current_context.pop(key, None)
-        self.store.save_context(self.user_id, current_context)  # Salva o contexto atualizado
+        # self.store.save_context(self.user_id, current_context)  # Salva o contexto atualizado
         return current_context
 
     
@@ -100,26 +103,26 @@ class FlowEngine:
 
             # !!! SUBSTITUIÇÃO CHAVE: Usar httpx.AsyncClient para chamadas assíncronas !!!
             # O `aclose()` garante que a conexão seja fechada.
-            async with self.http_client as client:
-                try:
-                    # Usa await para esperar a requisição assíncrona
-                    if json_body is not None:
-                        response = await client.request(method, url, headers=headers, json=json_body, timeout=60.0)
-                    else:
-                        response = await client.request(method, url, headers=headers, content=content_body, timeout=60.0)
-                    
-                    response.raise_for_status() # Lança exceção para status 4xx/5xx
+            client = self.http_client
+            try:
+                # Usa await para esperar a requisição assíncrona
+                if json_body is not None:
+                    response = await client.request(method, url, headers=headers, json=json_body, timeout=60.0)
+                else:
+                    response = await client.request(method, url, headers=headers, content=content_body, timeout=60.0)
+                
+                response.raise_for_status() # Lança exceção para status 4xx/5xx
 
-                    try:
-                        action_result = {"status": response.status_code, "data": response.json()}
-                    except:
-                        action_result = {"status": response.status_code, "text": response.text}
-                except httpx.HTTPStatusError as e:
-                    print(f"Erro HTTP: {e}")
-                    action_result = {"error": f"HTTP Error: {e.response.status_code}", "status": e.response.status_code}
-                except httpx.RequestError as e:
-                    print(f"Erro de Requisição: {e}")
-                    action_result = {"error": f"Request Error: {e}"}
+                try:
+                    action_result = {"status": response.status_code, "data": response.json()}
+                except:
+                    action_result = {"status": response.status_code, "text": response.text}
+            except httpx.HTTPStatusError as e:
+                print(f"Erro HTTP: {e}")
+                action_result = {"error": f"HTTP Error: {e.response.status_code}", "status": e.response.status_code}
+            except httpx.RequestError as e:
+                print(f"Erro de Requisição: {e}")
+                action_result = {"error": f"Request Error: {e}"}
 
         elif node_type == "llm":
             prompt = action_config["prompt"]
@@ -152,13 +155,13 @@ class FlowEngine:
                 user_input = user_inputs[node_id]
                 print(f">> Input para '{node_id}' recebido via contexto: {user_input}")
             else:
-                context["final_message"] = prompt_text
+                context["user_inputs"] = interrupt(prompt_text)
                 # Fallback para input interativo (apenas para testes locais)
                 # user_input = input(f">> {prompt_text} ")
             
             # action_result = {"value": user_input}
 
-            status = "waiting_input"
+            # status = "waiting_input"
 
         elif node_type == "fixed":
             action_result = action_config.get("data", {})
@@ -248,4 +251,4 @@ class FlowEngine:
         workflow.add_edge(FINAL_NODE_ID, END)
 
         # Compilar e retornar o *Runnable*
-        return workflow.compile()
+        return workflow.compile(checkpointer=self.memory)
