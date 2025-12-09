@@ -1,0 +1,347 @@
+:root {
+    --bg-color: #f4f7f9;
+    --card-bg: #ffffff;
+    --primary-color: #007bff;
+    --text-color: #333;
+    --border-color: #dee2e6;
+    --line-color: #bdc3c7;
+    --shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 20px;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.file-label {
+    display: inline-block;
+    background-color: var(--primary-color);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-bottom: 20px;
+}
+
+.file-label:hover {
+    background-color: #0056b3;
+}
+
+/* --- ESTILOS DA NOVA VISUALIZAÇÃO ANINHADA --- */
+#flow-container {
+    padding: 20px;
+    text-align: center;
+}
+
+.node-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    padding: 20px 0;
+}
+
+.node {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-top: 4px solid var(--primary-color);
+    border-radius: 8px;
+    padding: 10px 20px;
+    min-width: 220px;
+    max-width: 280px;
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    position: relative;
+    z-index: 2;
+}
+
+.node:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+}
+
+.node h3 {
+    margin-top: 0;
+    color: var(--primary-color);
+    font-size: 1.2em;
+    word-break: break-all;
+}
+
+.node p {
+    font-size: 0.9em;
+    color: #6c757d;
+    margin-bottom: 0;
+}
+
+.children-container {
+    display: flex;
+    justify-content: center;
+    position: relative;
+    padding-top: 40px;
+    /* Espaço para a linha e a condição */
+}
+
+/* Linha vertical que sai do nó pai */
+.children-container::before {
+    content: '';
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    width: 2px;
+    height: 60px;
+    background-color: var(--line-color);
+    z-index: 1;
+}
+
+.transition-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 15px;
+    position: relative;
+}
+
+/* Linha horizontal que conecta todos os filhos */
+.transition-group::before {
+    content: '';
+    position: absolute;
+    top: -20px;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background-color: var(--line-color);
+    z-index: 1;
+}
+
+/* Linha vertical que entra no nó filho */
+.transition-group::after {
+    content: '';
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    width: 2px;
+    height: 20px;
+    /* Metade do padding-top do children-container */
+    background-color: var(--line-color);
+    z-index: 1;
+}
+
+/* Esconde a linha horizontal para o primeiro e último filho se houver mais de um */
+.children-container .transition-group:only-child::before {
+    display: none;
+}
+
+.children-container .transition-group:first-child:not(:only-child)::before {
+    left: 50%;
+    width: 50%;
+}
+
+.children-container .transition-group:last-child:not(:only-child)::before {
+    right: 50%;
+    width: 50%;
+    left: auto;
+}
+
+.transition-condition {
+    position: absolute;
+    top: -15px;
+    transform: translateY(-50%);
+    background-color: var(--bg-color);
+    padding: 2px 8px;
+    font-size: 0.8em;
+    font-style: italic;
+    color: #555;
+    z-index: 3;
+    border-radius: 4px;
+    border: 1px solid var(--line-color);
+}
+
+/* --- Estilos do Modal (permanecem os mesmos, mas incluídos para ser completo) --- */
+.modal {
+    position: fixed;
+    z-index: 100;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background-color: var(--card-bg);
+    padding: 25px;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 700px;
+    max-height: 90vh;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.close-button {
+    color: #aaa;
+    position: absolute;
+    top: 15px;
+    right: 20px;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.close-button:hover {
+    color: #000;
+}
+
+#node-editor-form .form-group {
+    margin-bottom: 20px;
+}
+
+#node-editor-form label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+
+#node-editor-form input,
+#node-editor-form textarea,
+#node-editor-form select {
+    /* <--- Adicionado o select aqui */
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 1em;
+    font-family: "Courier New", Courier, monospace;
+    background-color: white;
+    /* Garante fundo branco */
+}
+
+#node-editor-form input:disabled {
+    background-color: #e9ecef;
+}
+
+#node-editor-form textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
+#node-editor-form button {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: background-color 0.2s;
+}
+
+#node-editor-form button:hover {
+    background-color: #0056b3;
+}
+
+/* Adicione este código ao final de style.css */
+.file-selector {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    /* Adiciona um espaço entre os botões */
+}
+
+/* Garante que o botão tenha a mesma aparência do label */
+button.file-label {
+    border: none;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+/* Adicione este código ao final de style.css */
+#version-form p {
+    padding: 10px;
+    background-color: #e9ecef;
+    border-radius: 4px;
+}
+
+/* Adicione este código NOVO em style.css */
+
+/* Estilo para o container dos nós desvinculados */
+#orphan-container {
+    margin-top: 50px;
+    padding-top: 30px;
+    border-top: 2px dashed var(--border-color);
+    opacity: 0.9;
+}
+
+#orphan-container h2 {
+    color: #6c757d;
+    font-weight: 500;
+}
+
+/* Estilo sutil para o nó órfão/desvinculado */
+.orphan-node {
+    border-top-color: #fd7e14;
+    /* Laranja como cor de aviso */
+    border-style: dashed;
+}
+
+/* Opcional: Adiciona um pequeno texto de aviso no nó órfão */
+.orphan-node::before {
+    content: 'DESVINCULADO';
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #fd7e14;
+    color: white;
+    padding: 2px 6px;
+    font-size: 0.6rem;
+    font-weight: bold;
+    border-radius: 4px;
+    z-index: 3;
+}
+
+/* Badge para o tipo do nó */
+.node span {
+    background-color: #e9ecef;
+    color: #495057;
+    font-weight: 600;
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #ced4da;
+    text-transform: uppercase;
+    display: inline-block;
+    margin-bottom: 8px;
+}
+
+/* Destaque para nós condicionais */
+.transition-condition {
+    background-color: #fff3cd;
+    /* Amarelo claro */
+    color: #856404;
+    border: 1px solid #ffeeba;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    z-index: 10;
+}
