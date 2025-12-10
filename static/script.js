@@ -13,6 +13,7 @@ const varsManagerBtn = document.getElementById('vars-manager-btn');
 const saveVersionBtn = document.getElementById('save-version-btn');
 const saveNodeBtn = document.getElementById('save-node-btn');
 const saveVarsBtn = document.getElementById('save-vars-btn');
+const themeToggleBtn = document.getElementById('theme-toggle-btn');
 
 // Fechar Modais
 document.getElementById('close-node-modal').onclick = () => nodeModal.classList.add('hidden');
@@ -25,8 +26,25 @@ let flowArray = [];
 let globalEnvironments = {};
 let startNodeId = null;
 
+// --- TEMA DARK/LIGHT ---
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark-mode');
+        themeToggleBtn.textContent = '☀️';
+    } else {
+        themeToggleBtn.textContent = '🌙';
+    }
+}
+
+themeToggleBtn.addEventListener('click', () => {
+    document.body.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    themeToggleBtn.textContent = isDark ? '☀️' : '🌙';
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+});
+
 // CONFIGURAÇÃO DOS CAMPOS
-// Atualizei 'if-else' para usar o tipo 'node-select'
 const CONFIG_SCHEMAS = {
     'api': [
         { key: 'url', label: 'URL', type: 'text', placeholder: 'https://...' },
@@ -36,7 +54,6 @@ const CONFIG_SCHEMAS = {
     ],
     'if-else': [
         { key: 'condition', label: 'Condição (Jinja2)', type: 'text', placeholder: 'context.valor > 10' },
-        // AQUI: Mudança para node-select
         { key: 'true_node', label: 'Próximo se TRUE', type: 'node-select' },
         { key: 'false_node', label: 'Próximo se FALSE', type: 'node-select' }
     ],
@@ -51,10 +68,10 @@ const CONFIG_SCHEMAS = {
 
 // --- INICIALIZAÇÃO ---
 document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
     fileInput.addEventListener('change', handleFileSelect);
 
     addNodeBtn.addEventListener('click', () => {
-        // Permite criar mesmo sem arquivo carregado (inicia novo fluxo)
         openNodeEditor(null);
     });
 
@@ -107,7 +124,7 @@ function loadFlowData(json) {
 // --- RENDERIZAÇÃO DO FLUXO ---
 function renderFlow() {
     flowContainer.innerHTML = '';
-    if (!startNodeId && flowArray.length > 0) startNodeId = flowArray[0].id; // Fallback
+    if (!startNodeId && flowArray.length > 0) startNodeId = flowArray[0].id;
     if (!startNodeId) return;
 
     // Identificar orfãos
@@ -127,7 +144,7 @@ function renderFlow() {
     if (orphanIds.length > 0) {
         const orphanDiv = document.createElement('div');
         orphanDiv.id = 'orphan-container';
-        orphanDiv.innerHTML = '<h3 style="margin-left:20px; color:#777;">Nós Desconectados</h3>';
+        orphanDiv.innerHTML = '<h3 style="margin-left:20px; color:var(--text-muted);">Nós Desconectados</h3>';
         orphanIds.forEach(id => {
             orphanDiv.appendChild(createNodeElement(id, new Set(), true));
         });
@@ -146,42 +163,73 @@ function getTransitions(node) {
     return transitions;
 }
 
+function getNodeClass(type) {
+    // Retorna a classe CSS baseada no tipo
+    const map = {
+        'api': 'node-api',
+        'if-else': 'node-ifelse',
+        'llm': 'node-llm',
+        'input': 'node-input',
+        'output': 'node-output',
+        'fixed': 'node-fixed'
+    };
+    return map[type] || 'node-default';
+}
+
 function createNodeElement(nodeId, visited, isOrphan = false) {
     const nodeContainer = document.createElement('div');
     nodeContainer.className = 'node-container';
 
+    // 1. Tratamento de Nó Não Definido (Erro)
     const nodeData = flowMap[nodeId];
     if (!nodeData) {
-        nodeContainer.innerHTML = `<div class="node" style="border-color:red">Erro: ${nodeId}</div>`;
+        nodeContainer.innerHTML = `
+            <div class="node node-error" style="border-left-color: #dc3545;">
+                <div style="color: #dc3545; font-weight: bold;">⚠ Erro</div>
+                <h3>${nodeId}</h3>
+                <p>Nó não encontrado</p>
+            </div>`;
         return nodeContainer;
     }
 
     const nodeDiv = document.createElement('div');
     nodeDiv.className = 'node';
+    // Adiciona classe específica do tipo para colorir via CSS
+    nodeDiv.classList.add(getNodeClass(nodeData.type));
+
     if (isOrphan) nodeDiv.classList.add('orphan-node');
 
     let typeLabel = nodeData.type.toUpperCase();
     let detailText = nodeData.action_config?.message || '';
 
+    // Lógica de texto
     if (nodeData.type === 'if-else') {
         typeLabel = "CONDICIONAL";
-        detailText = `<strong style="color:#a71d2a">${nodeData.action_config.condition || '?'}</strong>`;
+        // detailText agora apenas texto ou HTML simples, cor controlada via CSS não inline hardcoded se possível,
+        // mas aqui mantemos o strong. A cor interna pode ser herdada ou usar classe.
+        detailText = `<strong>${nodeData.action_config.condition || '?'}</strong>`;
     } else if (nodeData.type === 'llm') {
         detailText = (nodeData.action_config.prompt || '').substring(0, 40) + '...';
     } else if (nodeData.type === 'api') {
         detailText = `${nodeData.action_config.method || 'GET'} ${nodeData.action_config.url || ''}`;
     }
 
+    // Header com classe para cor
+    const typeHeader = `<div class="node-header">${typeLabel}</div>`;
+
     nodeDiv.innerHTML = `
-        <div style="font-size:0.7em; color:#999; margin-bottom:5px;">${typeLabel}</div>
+        ${typeHeader}
         <h3>${nodeId}</h3>
         <p>${detailText}</p>
     `;
     nodeDiv.onclick = () => openNodeEditor(nodeId);
     nodeContainer.appendChild(nodeDiv);
 
+    // 3. Tratamento de Loops (Nós já visitados na árvore)
     if (visited.has(nodeId)) {
-        nodeDiv.style.borderStyle = "double";
+        nodeDiv.classList.add('node-loop');
+        nodeDiv.style.borderStyle = "dashed";
+        nodeDiv.innerHTML += `<div style="margin-top:5px; font-size:0.8em; color:var(--text-muted);">⟳ Referência/Loop</div>`;
         return nodeContainer;
     }
     visited.add(nodeId);
@@ -199,8 +247,11 @@ function createNodeElement(nodeId, visited, isOrphan = false) {
                 const badge = document.createElement('span');
                 badge.className = 'transition-condition';
                 badge.innerText = t.label;
-                if (t.label === 'TRUE') { badge.style.color = 'green'; badge.style.borderColor = 'lightgreen'; badge.style.backgroundColor = '#eaffea'; }
-                if (t.label === 'FALSE') { badge.style.color = 'red'; badge.style.borderColor = '#ffcccc'; badge.style.backgroundColor = '#fff5f5'; }
+
+                // Classes ao invés de style inline
+                if (t.label === 'TRUE') badge.classList.add('badge-true');
+                if (t.label === 'FALSE') badge.classList.add('badge-false');
+
                 group.appendChild(badge);
             }
 
@@ -214,7 +265,6 @@ function createNodeElement(nodeId, visited, isOrphan = false) {
     return nodeContainer;
 }
 
-// --- HELPER PARA GERAR OPÇÕES DE NÓ ---
 function generateNodeOptions(selectedId) {
     let options = `<option value="">-- Fim / Nenhum --</option>`;
     Object.keys(flowMap).forEach(key => {
@@ -223,7 +273,6 @@ function generateNodeOptions(selectedId) {
     return options;
 }
 
-// --- EDITOR DE NÓ (COM COMBO BOX E LÓGICA IF-ELSE) ---
 function openNodeEditor(nodeId) {
     const isCreating = (nodeId === null);
     const nodeData = isCreating
@@ -232,7 +281,6 @@ function openNodeEditor(nodeId) {
 
     const form = document.getElementById('node-editor-form');
 
-    // Gera opções para o dropdown principal de "Next"
     const nextOptions = generateNodeOptions(nodeData.next);
 
     form.innerHTML = `
@@ -285,7 +333,6 @@ function openNodeEditor(nodeId) {
         const schema = CONFIG_SCHEMAS[type];
         const currentConfig = (type === nodeData.type) ? nodeData.action_config : {};
 
-        // Lógica de Visibilidade do Next
         if (type === 'if-else') {
             nextWrapper.style.display = 'none';
         } else {
@@ -293,7 +340,7 @@ function openNodeEditor(nodeId) {
         }
 
         if (!schema || schema.length === 0) {
-            configContainer.innerHTML = '<p style="color:#666; font-style:italic;">Sem configurações específicas.</p>';
+            configContainer.innerHTML = '<p style="color:var(--text-muted); font-style:italic;">Sem configurações específicas.</p>';
             return;
         }
 
@@ -306,7 +353,6 @@ function openNodeEditor(nodeId) {
                     ${field.options.map(o => `<option ${o === val ? 'selected' : ''}>${o}</option>`).join('')}
                 </select>`;
             }
-            // NOVO TIPO: node-select para dropdown de nós
             else if (field.type === 'node-select') {
                 inputHtml = `<select class="dyn-field" data-key="${field.key}">
                     ${generateNodeOptions(val)}
@@ -323,15 +369,13 @@ function openNodeEditor(nodeId) {
     };
 
     typeSelect.onchange = renderConfig;
-    renderConfig(); // Inicializa
+    renderConfig();
 
     renderNodeVars('pre-update-table', nodeData.pre_update);
     renderNodeVars('post-update-table', nodeData.post_update);
 
     nodeModal.classList.remove('hidden');
 }
-
-// ... Restante do código de Variáveis e Save (Mantido igual ao anterior, apenas replicando helpers necessários) ...
 
 window.addNodeVarRow = function (tableId, key = '', value = '') {
     const tbody = document.querySelector(`#${tableId} tbody`);
@@ -363,7 +407,6 @@ function renderNodeVars(tableId, dataObj) {
     });
 }
 
-// --- GERENCIADOR DE VARIÁVEIS GLOBAIS (Mantido) ---
 function openVarsManager() {
     const tbody = document.querySelector('#global-vars-table tbody');
     tbody.innerHTML = '';
@@ -403,7 +446,6 @@ function handleSaveNode() {
 
     const type = document.getElementById('edit-type').value;
     const nextSelect = document.getElementById('edit-next');
-    // Se estiver oculto (if-else), ignoramos o next, senão pegamos o valor
     const next = (nextSelect.offsetParent !== null) ? nextSelect.value : null;
 
     const actionConfig = {};

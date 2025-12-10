@@ -1,11 +1,67 @@
 :root {
+    /* Cores Base (Light Mode) */
     --bg-color: #f4f7f9;
     --card-bg: #ffffff;
-    --primary-color: #007bff;
-    --text-color: #333;
+    --text-color: #333333;
+    --text-muted: #6c757d;
     --border-color: #dee2e6;
     --line-color: #bdc3c7;
     --shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    --primary-color: #007bff;
+    --primary-hover: #0056b3;
+
+    /* Cores de Inputs/Forms */
+    --input-bg: #ffffff;
+    --input-border: #dee2e6;
+    --input-text: #495057;
+
+    /* Cores Específicas de Nós (Defaults) */
+    --node-api-color: #6f42c1;
+    --node-ifelse-color: #fd7e14;
+    --node-llm-color: #28a745;
+    --node-input-color: #17a2b8;
+    --node-output-color: #343a40;
+    --node-fixed-color: #007bff;
+    --node-default-color: #6c757d;
+
+    /* Cores de Badges/Status */
+    --badge-true-bg: #eaffea;
+    --badge-true-text: green;
+    --badge-true-border: lightgreen;
+
+    --badge-false-bg: #fff5f5;
+    --badge-false-text: red;
+    --badge-false-border: #ffcccc;
+
+    --btn-text: #ffffff;
+}
+
+body.dark-mode {
+    /* Cores Base (Dark Mode) */
+    --bg-color: #121212;
+    --card-bg: #1e1e1e;
+    --text-color: #e0e0e0;
+    --text-muted: #b0b0b0;
+    --border-color: #333333;
+    --line-color: #444444;
+    --shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+    --primary-color: #3a8fdc;
+    /* Azul ligeiramente mais claro para contraste */
+    --primary-hover: #2c7bb6;
+
+    /* Cores de Inputs/Forms */
+    --input-bg: #2b2b2b;
+    --input-border: #444444;
+    --input-text: #e0e0e0;
+
+    /* Badges ajustados para dark mode (opcional, pode manter as cores claras ou inverter) */
+    --badge-true-bg: #1b4d1b;
+    --badge-true-text: #8aff8a;
+    --badge-true-border: #2e7d32;
+
+    --badge-false-bg: #4d1b1b;
+    --badge-false-text: #ff8a8a;
+    --badge-false-border: #c62828;
 }
 
 body {
@@ -14,12 +70,13 @@ body {
     color: var(--text-color);
     margin: 0;
     padding: 20px;
+    transition: background-color 0.3s, color 0.3s;
 }
 
 header {
     text-align: center;
     margin-bottom: 20px;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--border-color);
     padding-bottom: 20px;
 }
 
@@ -28,12 +85,17 @@ header {
     justify-content: center;
     gap: 15px;
     margin-bottom: 15px;
+    flex-wrap: wrap;
+    /* Permitir quebra em telas menores */
 }
 
-.file-label {
+/* Botões Genéricos */
+.file-label,
+.btn-primary,
+.btn-add {
     display: inline-block;
     background-color: var(--primary-color);
-    color: white;
+    color: var(--btn-text);
     padding: 10px 20px;
     border-radius: 5px;
     cursor: pointer;
@@ -42,51 +104,127 @@ header {
     font-size: 1rem;
 }
 
-.file-label:hover {
-    background-color: #0056b3;
+.file-label:hover,
+.btn-primary:hover,
+.btn-add:hover {
+    background-color: var(--primary-hover);
+}
+
+/* Helper Class para botões com cores específicas (mantendo overrides mas usando vars onde possível se quisesse) 
+   Mas o CSS original usava style inline. Vamos manter classes auxiliares úteis ou deixar inline no HTML como estava,
+   mas o ideal é mover para classes. */
+.btn-purple {
+    background-color: #6f42c1 !important;
+}
+
+.btn-green {
+    background-color: #28a745 !important;
+}
+
+.btn-theme-toggle {
+    background-color: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+}
+
+.btn-theme-toggle:hover {
+    background-color: var(--border-color);
 }
 
 /* --- LAYOUT HORIZONTAL (TREE) --- */
 #flow-container {
     padding: 40px;
     overflow-x: auto;
-    /* Permite scroll horizontal */
     text-align: left;
     display: flex;
     flex-direction: column;
     gap: 50px;
-    /* Espaço entre árvores distintas (principal vs orfãos) */
 }
 
-/* Container do Nó + Seus Filhos */
 .node-container {
     display: flex;
     flex-direction: row;
-    /* Horizontal: Nó na esq, Filhos na dir */
     align-items: center;
-    /* Centraliza o nó verticalmente em relação aos filhos */
 }
 
 /* O Cartão do Nó */
 .node {
     background-color: var(--card-bg);
     border: 1px solid var(--border-color);
-    border-left: 4px solid var(--primary-color);
-    /* Borda na esquerda agora */
+    border-left: 4px solid var(--node-default-color);
+    /* Default fallback */
     border-top: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 10px 15px;
     width: 220px;
     flex-shrink: 0;
-    /* Não encolher */
     box-shadow: var(--shadow);
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s;
     position: relative;
     z-index: 2;
     margin-right: 40px;
-    /* Espaço para a linha horizontal */
 }
+
+/* Cores por Tipo de Nó (Classes adicionadas via JS) */
+.node-api {
+    border-left-color: var(--node-api-color);
+}
+
+.node-if-else,
+.node-ifelse {
+    border-left-color: var(--node-ifelse-color);
+}
+
+.node-llm {
+    border-left-color: var(--node-llm-color);
+}
+
+.node-input {
+    border-left-color: var(--node-input-color);
+}
+
+.node-output {
+    border-left-color: var(--node-output-color);
+}
+
+.node-fixed {
+    border-left-color: var(--node-fixed-color);
+}
+
+/* Headers coloridos dentro dos nós */
+.node-header {
+    font-size: 0.7em;
+    font-weight: bold;
+    margin-bottom: 5px;
+    color: var(--node-default-color);
+}
+
+.node-api .node-header {
+    color: var(--node-api-color);
+}
+
+.node-if-else .node-header,
+.node-ifelse .node-header {
+    color: var(--node-ifelse-color);
+}
+
+.node-llm .node-header {
+    color: var(--node-llm-color);
+}
+
+.node-input .node-header {
+    color: var(--node-input-color);
+}
+
+.node-output .node-header {
+    color: var(--node-output-color);
+}
+
+.node-fixed .node-header {
+    color: var(--node-fixed-color);
+}
+
 
 .node:hover {
     transform: scale(1.02);
@@ -102,37 +240,30 @@ header {
 
 .node p {
     font-size: 0.85em;
-    color: #6c757d;
+    color: var(--text-muted);
     margin-bottom: 0;
     line-height: 1.4;
 }
 
-/* Container que agrupa todos os grupos de transição (filhos) */
 .children-container {
     display: flex;
     flex-direction: column;
-    /* Filhos empilhados verticalmente */
     justify-content: center;
 }
 
-/* Grupo Individual: Uma linha de conexão + Um filho (que é outro node-container) */
 .transition-group {
     display: flex;
     flex-direction: row;
     align-items: center;
     position: relative;
     padding: 10px 0;
-    /* Espaçamento vertical entre irmãos */
 }
 
-/* --- LINHAS CONECTORAS (Lógica Horizontal) --- */
-
-/* 1. Linha Vertical que conecta os irmãos (lado esquerdo do grupo) */
+/* Linhas Conectoras */
 .transition-group::before {
     content: '';
     position: absolute;
     left: -40px;
-    /* Deve alinhar com o margin-right do pai */
     top: 0;
     height: 100%;
     width: 2px;
@@ -140,61 +271,39 @@ header {
     z-index: 1;
 }
 
-/* Remove a linha vertical do primeiro filho até o topo e do último até baixo
-   para criar o efeito de "fork" saindo do centro do pai */
-
-/* Primeiro filho: linha começa de 50% para baixo */
 .children-container>.transition-group:first-child::before {
     top: 50%;
     height: 50%;
 }
 
-/* Último filho: linha vai do topo até 50% */
 .children-container>.transition-group:last-child::before {
     top: 0;
     height: 50%;
 }
 
-/* Se for filho único, não precisa da linha vertical de "branching" */
 .children-container>.transition-group:only-child::before {
     display: none;
 }
 
-/* 2. Linha Horizontal que sai da linha vertical e entra no filho */
 .transition-group::after {
     content: '';
     position: absolute;
     left: -40px;
     top: 50%;
     width: 40px;
-    /* Conecta a linha vertical ao nó filho */
     height: 2px;
     background-color: var(--line-color);
     z-index: 1;
 }
 
-/* 3. Linha Horizontal que sai do Pai (apenas se tiver filhos) */
-/* Isso é feito usando o ::after do .node pai, mas como o HTML estrutura
-   o .node separado do .children-container, a linha visual é feita pelo
-   ::after do .transition-group.
-   Porém, precisamos conectar o PAI à linha vertical.
-   Faremos uma linha saindo do nó pai. */
-.node::after {
-    /* Esta linha só é visível se tiver filhos, controlaremos via JS ou CSS contextual se possível.
-       Mas no layout atual, o margin-right: 40px já reserva o espaço.
-       A linha vertical dos filhos (transition-group::before) cuida da junção.
-       Caso seja filho único, precisamos de uma linha direta. */
-}
-
-/* Ajuste para Condicionais (Texto na linha) */
+/* Badges Condicionais */
 .transition-condition {
     position: absolute;
     left: -30px;
-    /* Posiciona no meio da linha horizontal */
     top: 50%;
     transform: translate(-50%, -150%);
-    /* Acima da linha */
     background-color: #fff3cd;
+    /* Default fallback */
     color: #856404;
     border: 1px solid #ffeeba;
     padding: 1px 5px;
@@ -205,7 +314,19 @@ header {
     white-space: nowrap;
 }
 
-/* --- MODAL (Full Screen / Grande) --- */
+.badge-true {
+    background-color: var(--badge-true-bg);
+    color: var(--badge-true-text);
+    border-color: var(--badge-true-border);
+}
+
+.badge-false {
+    background-color: var(--badge-false-bg);
+    color: var(--badge-false-text);
+    border-color: var(--badge-false-border);
+}
+
+/* MODAL */
 .modal {
     position: fixed;
     z-index: 100;
@@ -226,9 +347,9 @@ header {
 
 .modal-content {
     background-color: var(--card-bg);
+    color: var(--text-color);
     padding: 30px;
     border-radius: 8px;
-    /* Tamanho grande solicitado */
     width: 95%;
     height: 95%;
     max-width: none;
@@ -242,7 +363,7 @@ header {
 
 .modal-content h2 {
     margin-top: 0;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-color);
     padding-bottom: 15px;
 }
 
@@ -257,19 +378,17 @@ header {
 }
 
 .close-button:hover {
-    color: #000;
+    color: var(--text-color);
 }
 
-/* --- FORMULÁRIOS --- */
+/* FORMULÁRIOS */
 #node-editor-form {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    /* Duas colunas para aproveitar o espaço */
     gap: 20px;
     padding-bottom: 20px;
 }
 
-/* Campos que ocupam largura total */
 .full-width {
     grid-column: 1 / -1;
 }
@@ -282,7 +401,7 @@ header {
     display: block;
     font-weight: 600;
     margin-bottom: 8px;
-    color: #495057;
+    color: var(--text-color);
 }
 
 #node-editor-form input,
@@ -291,22 +410,23 @@ header {
     width: 100%;
     box-sizing: border-box;
     padding: 12px;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--input-border);
     border-radius: 4px;
     font-size: 1em;
+    background-color: var(--input-bg);
+    color: var(--input-text);
 }
 
-/* Estilo do Action Config (Caixa Cinza) */
 .action-config-wrapper {
-    background-color: #f8f9fa;
+    background-color: var(--bg-color);
+    /* Usar bg-color para contraste leve com card-bg */
     padding: 20px;
-    border: 1px solid #e9ecef;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     grid-column: 1 / -1;
-    /* Ocupa tudo */
 }
 
-/* TABELA DE VARIÁVEIS (Pre/Post Update) */
+/* TABELA DE VARIÁVEIS */
 .vars-table {
     width: 100%;
     border-collapse: collapse;
@@ -317,61 +437,42 @@ header {
 
 .vars-table th,
 .vars-table td {
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     padding: 8px;
     text-align: left;
 }
 
 .vars-table th {
-    background-color: #e9ecef;
+    background-color: var(--bg-color);
     padding: 10px 15px;
-    color: #555;
+    color: var(--text-color);
     font-size: 0.9em;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    border-bottom: 2px solid #eee;
+    border-bottom: 2px solid var(--border-color);
 }
 
 .vars-table td {
-    background-color: #f9f9f9;
+    background-color: var(--card-bg);
+    /* Ou input-bg */
     padding: 5px;
 }
 
-/* Inputs dentro da tabela mais limpos */
 .vars-table input.var-row-input {
     width: 100%;
     border: 1px solid transparent;
-    /* Borda transparente para parecer integrado */
     background-color: transparent;
     padding: 10px;
     font-size: 1em;
     outline: none;
     transition: background 0.2s;
+    color: var(--text-color);
 }
 
 .vars-table input.var-row-input:focus {
-    background-color: #fff;
+    background-color: var(--input-bg);
     border-color: var(--primary-color);
     box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
-    border-radius: 4px;
-}
-
-/* Alinhamento do botão de excluir */
-.vars-table .btn-delete {
-    color: #dc3545;
-    opacity: 0.7;
-    transition: opacity 0.2s, transform 0.2s;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    height: 100%;
-}
-
-.vars-table .btn-delete:hover {
-    opacity: 1;
-    transform: scale(1.2);
-    background-color: #ffeaea;
     border-radius: 4px;
 }
 
@@ -379,13 +480,11 @@ header {
     width: 100%;
     border: none;
     background: transparent;
+    color: var(--text-color);
 }
 
-.var-row-input {
-    width: 100%;
-    border: 1px solid #ced4da;
-    border-radius: 3px;
-    padding: 5px;
+.var-row-select option {
+    background-color: var(--card-bg);
 }
 
 .btn-icon {
@@ -400,48 +499,38 @@ header {
     color: #dc3545;
 }
 
-.btn-add {
-    background-color: #28a745;
-    color: white;
-    border: none;
-    padding: 5px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    margin-top: 5px;
-    font-size: 0.85em;
+.btn-delete:hover {
+    background-color: rgba(220, 53, 69, 0.1);
 }
 
-/* Botões do Footer do Modal */
 .modal-footer {
     grid-column: 1 / -1;
     display: flex;
     justify-content: flex-end;
     gap: 15px;
     margin-top: 20px;
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--border-color);
     padding-top: 20px;
 }
 
-.btn-primary {
-    background-color: var(--primary-color);
-    color: white;
-    padding: 12px 25px;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 1.1em;
-}
-
-.btn-primary:hover {
-    background-color: #0056b3;
-}
-
-/* Styles para orfãos */
+/* Orphan Styles */
 #orphan-container {
-    border-top: 2px dashed #ccc;
+    border-top: 2px dashed var(--line-color);
     padding-top: 20px;
 }
 
 .orphan-node {
-    border-left-color: #fd7e14;
+    border-left-color: var(--node-ifelse-color);
+    /* Cor de destaque */
+}
+
+/* ESTADOS ESPECIAIS DE NÓS */
+.node-loop {
+    background-color: var(--bg-color);
+    /* Ligeiramente diferente do card */
+    opacity: 0.8;
+}
+
+.node-error {
+    background-color: rgba(220, 53, 69, 0.1);
 }
