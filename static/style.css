@@ -18,7 +18,16 @@ body {
 
 header {
     text-align: center;
-    margin-bottom: 40px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 20px;
+}
+
+.file-selector {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-bottom: 15px;
 }
 
 .file-label {
@@ -29,144 +38,174 @@ header {
     border-radius: 5px;
     cursor: pointer;
     transition: background-color 0.2s;
-    margin-bottom: 20px;
+    border: none;
+    font-size: 1rem;
 }
 
 .file-label:hover {
     background-color: #0056b3;
 }
 
-/* --- ESTILOS DA NOVA VISUALIZAÇÃO ANINHADA --- */
+/* --- LAYOUT HORIZONTAL (TREE) --- */
 #flow-container {
-    padding: 20px;
-    text-align: center;
-}
-
-.node-container {
+    padding: 40px;
+    overflow-x: auto;
+    /* Permite scroll horizontal */
+    text-align: left;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    position: relative;
-    padding: 20px 0;
+    gap: 50px;
+    /* Espaço entre árvores distintas (principal vs orfãos) */
 }
 
+/* Container do Nó + Seus Filhos */
+.node-container {
+    display: flex;
+    flex-direction: row;
+    /* Horizontal: Nó na esq, Filhos na dir */
+    align-items: center;
+    /* Centraliza o nó verticalmente em relação aos filhos */
+}
+
+/* O Cartão do Nó */
 .node {
     background-color: var(--card-bg);
     border: 1px solid var(--border-color);
-    border-top: 4px solid var(--primary-color);
+    border-left: 4px solid var(--primary-color);
+    /* Borda na esquerda agora */
+    border-top: 1px solid var(--border-color);
     border-radius: 8px;
-    padding: 10px 20px;
-    min-width: 220px;
-    max-width: 280px;
+    padding: 10px 15px;
+    width: 220px;
+    flex-shrink: 0;
+    /* Não encolher */
     box-shadow: var(--shadow);
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s;
     position: relative;
     z-index: 2;
+    margin-right: 40px;
+    /* Espaço para a linha horizontal */
 }
 
 .node:hover {
-    transform: translateY(-5px);
+    transform: scale(1.02);
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
 }
 
 .node h3 {
     margin-top: 0;
     color: var(--primary-color);
-    font-size: 1.2em;
+    font-size: 1.1em;
     word-break: break-all;
 }
 
 .node p {
-    font-size: 0.9em;
+    font-size: 0.85em;
     color: #6c757d;
     margin-bottom: 0;
+    line-height: 1.4;
 }
 
+/* Container que agrupa todos os grupos de transição (filhos) */
 .children-container {
     display: flex;
+    flex-direction: column;
+    /* Filhos empilhados verticalmente */
     justify-content: center;
-    position: relative;
-    padding-top: 40px;
-    /* Espaço para a linha e a condição */
 }
 
-/* Linha vertical que sai do nó pai */
-.children-container::before {
+/* Grupo Individual: Uma linha de conexão + Um filho (que é outro node-container) */
+.transition-group {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    position: relative;
+    padding: 10px 0;
+    /* Espaçamento vertical entre irmãos */
+}
+
+/* --- LINHAS CONECTORAS (Lógica Horizontal) --- */
+
+/* 1. Linha Vertical que conecta os irmãos (lado esquerdo do grupo) */
+.transition-group::before {
     content: '';
     position: absolute;
-    top: -20px;
-    left: 50%;
+    left: -40px;
+    /* Deve alinhar com o margin-right do pai */
+    top: 0;
+    height: 100%;
     width: 2px;
-    height: 60px;
     background-color: var(--line-color);
     z-index: 1;
 }
 
-.transition-group {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 0 15px;
-    position: relative;
+/* Remove a linha vertical do primeiro filho até o topo e do último até baixo
+   para criar o efeito de "fork" saindo do centro do pai */
+
+/* Primeiro filho: linha começa de 50% para baixo */
+.children-container>.transition-group:first-child::before {
+    top: 50%;
+    height: 50%;
 }
 
-/* Linha horizontal que conecta todos os filhos */
-.transition-group::before {
+/* Último filho: linha vai do topo até 50% */
+.children-container>.transition-group:last-child::before {
+    top: 0;
+    height: 50%;
+}
+
+/* Se for filho único, não precisa da linha vertical de "branching" */
+.children-container>.transition-group:only-child::before {
+    display: none;
+}
+
+/* 2. Linha Horizontal que sai da linha vertical e entra no filho */
+.transition-group::after {
     content: '';
     position: absolute;
-    top: -20px;
-    left: 0;
-    width: 100%;
+    left: -40px;
+    top: 50%;
+    width: 40px;
+    /* Conecta a linha vertical ao nó filho */
     height: 2px;
     background-color: var(--line-color);
     z-index: 1;
 }
 
-/* Linha vertical que entra no nó filho */
-.transition-group::after {
-    content: '';
-    position: absolute;
-    top: -20px;
-    left: 50%;
-    width: 2px;
-    height: 20px;
-    /* Metade do padding-top do children-container */
-    background-color: var(--line-color);
-    z-index: 1;
+/* 3. Linha Horizontal que sai do Pai (apenas se tiver filhos) */
+/* Isso é feito usando o ::after do .node pai, mas como o HTML estrutura
+   o .node separado do .children-container, a linha visual é feita pelo
+   ::after do .transition-group.
+   Porém, precisamos conectar o PAI à linha vertical.
+   Faremos uma linha saindo do nó pai. */
+.node::after {
+    /* Esta linha só é visível se tiver filhos, controlaremos via JS ou CSS contextual se possível.
+       Mas no layout atual, o margin-right: 40px já reserva o espaço.
+       A linha vertical dos filhos (transition-group::before) cuida da junção.
+       Caso seja filho único, precisamos de uma linha direta. */
 }
 
-/* Esconde a linha horizontal para o primeiro e último filho se houver mais de um */
-.children-container .transition-group:only-child::before {
-    display: none;
-}
-
-.children-container .transition-group:first-child:not(:only-child)::before {
-    left: 50%;
-    width: 50%;
-}
-
-.children-container .transition-group:last-child:not(:only-child)::before {
-    right: 50%;
-    width: 50%;
-    left: auto;
-}
-
+/* Ajuste para Condicionais (Texto na linha) */
 .transition-condition {
     position: absolute;
-    top: -15px;
-    transform: translateY(-50%);
-    background-color: var(--bg-color);
-    padding: 2px 8px;
-    font-size: 0.8em;
-    font-style: italic;
-    color: #555;
-    z-index: 3;
-    border-radius: 4px;
-    border: 1px solid var(--line-color);
+    left: -30px;
+    /* Posiciona no meio da linha horizontal */
+    top: 50%;
+    transform: translate(-50%, -150%);
+    /* Acima da linha */
+    background-color: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeeba;
+    padding: 1px 5px;
+    font-size: 0.7em;
+    font-weight: bold;
+    border-radius: 3px;
+    z-index: 5;
+    white-space: nowrap;
 }
 
-/* --- Estilos do Modal (permanecem os mesmos, mas incluídos para ser completo) --- */
+/* --- MODAL (Full Screen / Grande) --- */
 .modal {
     position: fixed;
     z-index: 100;
@@ -175,7 +214,7 @@ header {
     width: 100%;
     height: 100%;
     overflow: auto;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(0, 0, 0, 0.6);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -187,22 +226,32 @@ header {
 
 .modal-content {
     background-color: var(--card-bg);
-    padding: 25px;
+    padding: 30px;
     border-radius: 8px;
-    width: 90%;
-    max-width: 700px;
-    max-height: 90vh;
+    /* Tamanho grande solicitado */
+    width: 95%;
+    height: 95%;
+    max-width: none;
+    max-height: none;
     overflow-y: auto;
     position: relative;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-content h2 {
+    margin-top: 0;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 15px;
 }
 
 .close-button {
     color: #aaa;
     position: absolute;
-    top: 15px;
-    right: 20px;
-    font-size: 28px;
+    top: 20px;
+    right: 30px;
+    font-size: 35px;
     font-weight: bold;
     cursor: pointer;
 }
@@ -211,193 +260,188 @@ header {
     color: #000;
 }
 
+/* --- FORMULÁRIOS --- */
+#node-editor-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    /* Duas colunas para aproveitar o espaço */
+    gap: 20px;
+    padding-bottom: 20px;
+}
+
+/* Campos que ocupam largura total */
+.full-width {
+    grid-column: 1 / -1;
+}
+
 #node-editor-form .form-group {
-    margin-bottom: 20px;
+    margin-bottom: 15px;
 }
 
 #node-editor-form label {
     display: block;
-    font-weight: bold;
+    font-weight: 600;
     margin-bottom: 8px;
+    color: #495057;
 }
 
-/* Garante que inputs e selects não ultrapassem a largura do container */
 #node-editor-form input,
 #node-editor-form textarea,
 #node-editor-form select {
     width: 100%;
     box-sizing: border-box;
-    /* ESSENCIAL: Mantém o padding dentro dos 100% */
-    padding: 10px;
+    padding: 12px;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     font-size: 1em;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    /* Fonte normal para inputs */
-    background-color: #fff;
-    margin-bottom: 0;
-    /* Remove margem padrão para controlar via grupo */
-    color: var(--text-color);
 }
 
-#node-editor-form input:disabled {
+/* Estilo do Action Config (Caixa Cinza) */
+.action-config-wrapper {
+    background-color: #f8f9fa;
+    padding: 20px;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    grid-column: 1 / -1;
+    /* Ocupa tudo */
+}
+
+/* TABELA DE VARIÁVEIS (Pre/Post Update) */
+.vars-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    border-spacing: 0 10px;
+    font-size: 0.9em;
+}
+
+.vars-table th,
+.vars-table td {
+    border: 1px solid #dee2e6;
+    padding: 8px;
+    text-align: left;
+}
+
+.vars-table th {
     background-color: #e9ecef;
+    padding: 10px 15px;
+    color: #555;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 2px solid #eee;
 }
 
-#node-editor-form textarea {
-    font-family: "Courier New", Courier, monospace;
-    min-height: 120px;
-    resize: vertical;
+.vars-table td {
+    background-color: #f9f9f9;
+    padding: 5px;
 }
 
-#node-editor-form button {
+/* Inputs dentro da tabela mais limpos */
+.vars-table input.var-row-input {
+    width: 100%;
+    border: 1px solid transparent;
+    /* Borda transparente para parecer integrado */
+    background-color: transparent;
+    padding: 10px;
+    font-size: 1em;
+    outline: none;
+    transition: background 0.2s;
+}
+
+.vars-table input.var-row-input:focus {
+    background-color: #fff;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
+    border-radius: 4px;
+}
+
+/* Alinhamento do botão de excluir */
+.vars-table .btn-delete {
+    color: #dc3545;
+    opacity: 0.7;
+    transition: opacity 0.2s, transform 0.2s;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+}
+
+.vars-table .btn-delete:hover {
+    opacity: 1;
+    transform: scale(1.2);
+    background-color: #ffeaea;
+    border-radius: 4px;
+}
+
+.var-row-select {
+    width: 100%;
+    border: none;
+    background: transparent;
+}
+
+.var-row-input {
+    width: 100%;
+    border: 1px solid #ced4da;
+    border-radius: 3px;
+    padding: 5px;
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2em;
+    padding: 0 5px;
+}
+
+.btn-delete {
+    color: #dc3545;
+}
+
+.btn-add {
+    background-color: #28a745;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 5px;
+    font-size: 0.85em;
+}
+
+/* Botões do Footer do Modal */
+.modal-footer {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    gap: 15px;
+    margin-top: 20px;
+    border-top: 1px solid #eee;
+    padding-top: 20px;
+}
+
+.btn-primary {
     background-color: var(--primary-color);
     color: white;
-    padding: 12px 20px;
+    padding: 12px 25px;
     border: none;
     border-radius: 5px;
     cursor: pointer;
-    font-size: 1em;
-    transition: background-color 0.2s;
+    font-size: 1.1em;
 }
 
-#node-editor-form button:hover {
+.btn-primary:hover {
     background-color: #0056b3;
 }
 
-/* Adicione este código ao final de style.css */
-.file-selector {
-    display: flex;
-    justify-content: center;
-    gap: 15px;
-    /* Adiciona um espaço entre os botões */
-}
-
-/* Garante que o botão tenha a mesma aparência do label */
-button.file-label {
-    border: none;
-    font-family: inherit;
-    font-size: inherit;
-}
-
-/* Adicione este código ao final de style.css */
-#version-form p {
-    padding: 10px;
-    background-color: #e9ecef;
-    border-radius: 4px;
-}
-
-/* Adicione este código NOVO em style.css */
-
-/* Estilo para o container dos nós desvinculados */
+/* Styles para orfãos */
 #orphan-container {
-    margin-top: 50px;
-    padding-top: 30px;
-    border-top: 2px dashed var(--border-color);
-    opacity: 0.9;
+    border-top: 2px dashed #ccc;
+    padding-top: 20px;
 }
 
-#orphan-container h2 {
-    color: #6c757d;
-    font-weight: 500;
-}
-
-/* Estilo sutil para o nó órfão/desvinculado */
 .orphan-node {
-    border-top-color: #fd7e14;
-    /* Laranja como cor de aviso */
-    border-style: dashed;
-}
-
-/* Opcional: Adiciona um pequeno texto de aviso no nó órfão */
-.orphan-node::before {
-    content: 'DESVINCULADO';
-    position: absolute;
-    top: -10px;
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: #fd7e14;
-    color: white;
-    padding: 2px 6px;
-    font-size: 0.6rem;
-    font-weight: bold;
-    border-radius: 4px;
-    z-index: 3;
-}
-
-/* Badge para o tipo do nó */
-.node span {
-    background-color: #e9ecef;
-    color: #495057;
-    font-weight: 600;
-    font-size: 0.75rem;
-    padding: 2px 6px;
-    border-radius: 4px;
-    border: 1px solid #ced4da;
-    text-transform: uppercase;
-    display: inline-block;
-    margin-bottom: 8px;
-}
-
-/* Destaque para nós condicionais */
-.transition-condition {
-    background-color: #fff3cd;
-    /* Amarelo claro */
-    color: #856404;
-    border: 1px solid #ffeeba;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-size: 0.8rem;
-    white-space: nowrap;
-    z-index: 10;
-}
-
-/* Estilo do Container Cinza do Action Config */
-.action-config-wrapper {
-    background-color: #f8f9fa;
-    padding: 15px;
-    border: 1px solid #e9ecef;
-    border-radius: 6px;
-    margin-bottom: 20px;
-}
-
-.action-config-title {
-    font-size: 0.9em;
-    font-weight: bold;
-    color: #007bff;
-    margin-bottom: 15px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid #dee2e6;
-    padding-bottom: 5px;
-    display: block;
-}
-
-/* Grupo de cada campo dinâmico (Label + Input) */
-.dynamic-field-group {
-    margin-bottom: 15px;
-}
-
-.dynamic-field-group:last-child {
-    margin-bottom: 0;
-}
-
-.dynamic-field-group label {
-    display: block;
-    margin-bottom: 6px;
-    font-weight: 600;
-    font-size: 0.9em;
-    color: #495057;
-}
-
-#node-editor-form select {
-    height: 42px;
-    /* Altura aproximada de um input com padding */
-    appearance: none;
-    /* Opcional: remove estilo nativo para ficar mais flat */
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    background-size: 1em;
-    padding-right: 30px;
+    border-left-color: #fd7e14;
 }

@@ -4,47 +4,93 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualizador de Fluxo (Novo Formato)</title>
+    <title>Fluxo Horizontal & Variáveis</title>
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
     <header>
-        <h1>Visualizador de Fluxo Dinâmico</h1>
+        <h1>Editor de Fluxo</h1>
         <div class="file-selector">
-            <label for="json-file-input" class="file-label">Carregar Arquivo JSON</label>
+            <label for="json-file-input" class="file-label">📂 Carregar JSON</label>
             <input type="file" id="json-file-input" accept=".json" style="display: none;">
-            <button id="add-node-btn" class="file-label">Adicionar Novo Nó</button>
-            <button id="save-version-btn" class="file-label" style="background-color: #28a745;">Salvar JSON</button>
+
+            <button id="add-node-btn" class="file-label">➕ Novo Nó</button>
+            <button id="vars-manager-btn" class="file-label" style="background-color: #6f42c1;">🛠 Variáveis
+                Globais</button>
+            <button id="save-version-btn" class="file-label" style="background-color: #28a745;">💾 Salvar JSON</button>
         </div>
-        <p id="instructions">Carregue o arquivo <b>flow_definition.json</b>. Clique nos nós para editar.</p>
+        <p style="color:#666; font-size: 0.9em;">Carregue o arquivo para visualizar. O layout é horizontal. Clique nos
+            nós para editar.</p>
     </header>
+
     <main id="flow-container">
     </main>
 
     <div id="node-modal" class="modal hidden">
         <div class="modal-content">
-            <span class="close-button">&times;</span>
-            <h2>Editar Nó</h2>
+            <span class="close-button" id="close-node-modal">&times;</span>
+            <h2 id="modal-title">Editar Nó</h2>
+
             <form id="node-editor-form">
             </form>
+
+            <div class="modal-footer">
+                <button type="button" class="btn-primary" id="save-node-btn">Salvar Alterações</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="vars-modal" class="modal hidden">
+        <div class="modal-content" style="height: auto; max-height: 90vh;">
+            <span class="close-button" id="close-vars-modal">&times;</span>
+            <h2>Variáveis de Ambiente</h2>
+            <p style="color: #666; margin-bottom: 20px;">
+                Defina aqui as chaves globais que poderão ser lidas ou atualizadas pelos nós.
+            </p>
+
+            <div style="overflow-y: auto; max-height: 60vh; padding: 5px;">
+                <table class="vars-table" id="global-vars-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 40%;">Chave (Key)</th>
+                            <th style="width: 50%;">Valor Inicial</th>
+                            <th style="width: 10%; text-align: center;">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+
+            <button type="button" id="add-global-var-btn" class="btn-add"
+                style="margin-top: 15px; padding: 10px 20px; font-size: 0.9em;">
+                ➕ Adicionar Variável
+            </button>
+
+            <div class="modal-footer">
+                <button type="button" class="btn-primary" id="save-vars-btn">Concluir</button>
+            </div>
         </div>
     </div>
 
     <div id="version-modal" class="modal hidden">
-        <div class="modal-content">
+        <div class="modal-content" style="width: 500px; height: auto;">
             <span class="close-button version-modal-close">&times;</span>
-            <h2>Salvar Fluxo</h2>
+            <h2>Baixar JSON</h2>
             <form id="version-form">
-                <p>O arquivo será salvo mantendo a estrutura original de lista.</p>
+                <p>O arquivo incluirá os Nós e as Variáveis de Ambiente.</p>
                 <div class="form-group">
                     <label for="new-filename">Nome do Arquivo</label>
-                    <input type="text" id="new-filename" value="flow_definition_v2.json">
+                    <input type="text" id="new-filename" value="flow_v2.json">
                 </div>
-                <button type="submit" style="background-color: #28a745;">Baixar JSON</button>
+                <div class="modal-footer">
+                    <button type="submit" class="btn-primary">Baixar</button>
+                </div>
             </form>
         </div>
     </div>
+
     <script src="script.js"></script>
 </body>
 

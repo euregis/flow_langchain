@@ -1,508 +1,463 @@
-const addNodeButton = document.getElementById('add-node-btn');
-const saveVersionButton = document.getElementById('save-version-btn');
+// --- REFERÊNCIAS DOM ---
+const flowContainer = document.getElementById('flow-container');
+const fileInput = document.getElementById('json-file-input');
+
+// Modais
+const nodeModal = document.getElementById('node-modal');
+const varsModal = document.getElementById('vars-modal');
 const versionModal = document.getElementById('version-modal');
-const versionForm = document.getElementById('version-form');
-const versionModalClose = document.querySelector('.version-modal-close');
 
+// Botões Principais
+const addNodeBtn = document.getElementById('add-node-btn');
+const varsManagerBtn = document.getElementById('vars-manager-btn');
+const saveVersionBtn = document.getElementById('save-version-btn');
+const saveNodeBtn = document.getElementById('save-node-btn');
+const saveVarsBtn = document.getElementById('save-vars-btn');
 
+// Fechar Modais
+document.getElementById('close-node-modal').onclick = () => nodeModal.classList.add('hidden');
+document.getElementById('close-vars-modal').onclick = () => varsModal.classList.add('hidden');
+document.querySelector('.version-modal-close').onclick = () => versionModal.classList.add('hidden');
+
+// --- ESTADO GLOBAL ---
+let flowMap = {};
+let flowArray = [];
+let globalEnvironments = {};
+let startNodeId = null;
+
+// CONFIGURAÇÃO DOS CAMPOS
+// Atualizei 'if-else' para usar o tipo 'node-select'
 const CONFIG_SCHEMAS = {
     'api': [
-        { key: 'url', label: 'URL da API', type: 'text', placeholder: 'https://api.exemplo.com/...' },
-        { key: 'method', label: 'Método HTTP', type: 'select', options: ['GET', 'POST', 'PUT', 'DELETE'] },
-        { key: 'headers', label: 'Headers (JSON)', type: 'textarea', placeholder: '{"Authorization": "..."}' },
-        { key: 'body', label: 'Body (JSON)', type: 'textarea', placeholder: '{ "chave": "valor" }' }
+        { key: 'url', label: 'URL', type: 'text', placeholder: 'https://...' },
+        { key: 'method', label: 'Método', type: 'select', options: ['GET', 'POST', 'PUT', 'DELETE'] },
+        { key: 'headers', label: 'Headers (JSON)', type: 'textarea', rows: 2 },
+        { key: 'body', label: 'Body (JSON)', type: 'textarea', rows: 4 }
     ],
     'if-else': [
         { key: 'condition', label: 'Condição (Jinja2)', type: 'text', placeholder: 'context.valor > 10' },
-        { key: 'true_node', label: 'Ir para se Verdadeiro (ID)', type: 'text' },
-        { key: 'false_node', label: 'Ir para se Falso (ID)', type: 'text' }
+        // AQUI: Mudança para node-select
+        { key: 'true_node', label: 'Próximo se TRUE', type: 'node-select' },
+        { key: 'false_node', label: 'Próximo se FALSE', type: 'node-select' }
     ],
     'llm': [
-        { key: 'prompt', label: 'Prompt / Instrução', type: 'textarea', rows: 5 },
-        { key: 'model', label: 'Modelo (Opcional)', type: 'text', placeholder: 'gpt-4o' }
+        { key: 'prompt', label: 'Prompt', type: 'textarea', rows: 6 },
+        { key: 'model', label: 'Modelo', type: 'text', placeholder: 'gpt-4o' }
     ],
-    'output': [
-        { key: 'message', label: 'Mensagem de Saída', type: 'textarea', rows: 3 }
-    ],
-    'input': [
-        { key: 'variable', label: 'Nome da Variável (Opcional)', type: 'text' }
-    ],
-    // 'fixed' e outros não listados usarão o modo "Raw JSON" padrão
+    'output': [{ key: 'message', label: 'Mensagem', type: 'textarea' }],
+    'input': [{ key: 'variable', label: 'Salvar em Variável (opcional)', type: 'text' }],
+    'fixed': []
 };
 
-// Aguarda o carregamento completo do HTML
+// --- INICIALIZAÇÃO ---
 document.addEventListener('DOMContentLoaded', () => {
-
-    // --- ELEMENTOS DO DOM ---
-    const flowContainer = document.getElementById('flow-container');
-    const modal = document.getElementById('node-modal');
-    const modalForm = document.getElementById('node-editor-form');
-    const closeButton = document.querySelector('.close-button');
-    const fileInput = document.getElementById('json-file-input');
-
-    // --- VARIÁVEIS GLOBAIS DE ESTADO ---
-    let flowMap = {}; // Armazenará os nós como Objeto { id: node } para acesso rápido
-    let flowArray = []; // Mantém a referência original do array
-    let startNodeId = null;
-
-    // --- OUVINTES ---
     fileInput.addEventListener('change', handleFileSelect);
 
-    addNodeButton.addEventListener('click', () => {
-        if (Object.keys(flowMap).length === 0) {
-            alert('Por favor, carregue um fluxo primeiro.');
-            return;
-        }
+    addNodeBtn.addEventListener('click', () => {
+        // Permite criar mesmo sem arquivo carregado (inicia novo fluxo)
         openNodeEditor(null);
     });
 
-    function handleFileSelect(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const jsonData = JSON.parse(e.target.result);
-                processAndRenderFlow(jsonData);
-            } catch (error) {
-                alert(`Erro ao processar JSON: ${error.message}`);
-            }
-        };
-        reader.readAsText(file);
-    }
-
-    /**
-     * Processa o JSON (seja array ou objeto) e normaliza para renderização
-     */
-    function processAndRenderFlow(jsonData) {
-        flowContainer.innerHTML = '';
-        flowMap = {};
-        flowArray = [];
-        startNodeId = null;
-
-        let nodesList = [];
-
-        // Verifica se é a estrutura nova (root tem "nodes" como Array)
-        if (jsonData.nodes && Array.isArray(jsonData.nodes)) {
-            nodesList = jsonData.nodes;
-            // Assume que o primeiro nó da lista é o inicial
-            if (nodesList.length > 0) startNodeId = nodesList[0].id;
-        } else {
-            alert('Formato de arquivo não reconhecido. Esperado objeto com propriedade "nodes" (Array).');
-            return;
-        }
-
-        // Converte Array para Mapa para fácil acesso por ID
-        nodesList.forEach(node => {
-            flowMap[node.id] = node;
-        });
-        flowArray = nodesList; // Guarda referência
-
-        console.log('Mapa de Fluxo gerado:', flowMap);
-        initializeFlowView();
-    }
-
-    /**
-     * Função auxiliar para normalizar transições do novo formato
-     * Retorna array de objetos: { targetId, label }
-     */
-    function getTransitions(node) {
-        const transitions = [];
-
-        // Caso 1: Nó tipo "if-else" (lógica bifurcada)
-        if (node.type === 'if-else' && node.action_config) {
-            if (node.action_config.true_node) {
-                transitions.push({
-                    targetId: node.action_config.true_node,
-                    label: `(TRUE) ${node.action_config.condition || ''}`
-                });
-            }
-            if (node.action_config.false_node) {
-                transitions.push({
-                    targetId: node.action_config.false_node,
-                    label: '(FALSE)'
-                });
-            }
-        }
-        // Caso 2: Transição direta (campo "next")
-        else if (node.next) {
-            transitions.push({
-                targetId: node.next,
-                label: ''
-            });
-        }
-
-        return transitions;
-    }
-
-    function initializeFlowView() {
-        flowContainer.innerHTML = '';
-
-        if (!startNodeId || !flowMap[startNodeId]) {
-            flowContainer.innerHTML = '<p>Não foi possível identificar o nó inicial.</p>';
-            return;
-        }
-
-        // 1. Identificar Orfãos
-        // Cria um Set de todos os nós que são "destino" de alguém
-        const targetNodes = new Set();
-        Object.values(flowMap).forEach(node => {
-            const transitions = getTransitions(node);
-            transitions.forEach(t => targetNodes.add(t.targetId));
-        });
-
-        const orphanNodeIds = new Set();
-        Object.keys(flowMap).forEach(id => {
-            if (!targetNodes.has(id) && id !== startNodeId) {
-                orphanNodeIds.add(id);
-            }
-        });
-
-        // 2. Renderizar Fluxo Principal
-        const visitedNodes = new Set();
-        const mainFlowContainer = document.createElement('div');
-        const flowElement = createNodeElement(startNodeId, visitedNodes, orphanNodeIds);
-        mainFlowContainer.appendChild(flowElement);
-        flowContainer.appendChild(mainFlowContainer);
-
-        // 3. Renderizar Orfãos
-        if (orphanNodeIds.size > 0) {
-            const orphanContainer = document.createElement('div');
-            orphanContainer.id = 'orphan-container';
-            orphanContainer.innerHTML = '<h2>Nós Desvinculados (Não atingíveis)</h2>';
-
-            orphanNodeIds.forEach(id => {
-                // Renderiza cada orfão como uma nova árvore
-                const orphanElement = createNodeElement(id, new Set(), orphanNodeIds);
-                orphanContainer.appendChild(orphanElement);
-            });
-            flowContainer.appendChild(orphanContainer);
-        }
-    }
-
-    function createNodeElement(nodeId, visitedNodes, orphanNodeIds) {
-        const nodeData = flowMap[nodeId];
-        const nodeContainer = document.createElement('div');
-        nodeContainer.className = 'node-container';
-
-        // Caso o nó apontado não exista no mapa (link quebrado)
-        if (!nodeData) {
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'node';
-            errorDiv.style.borderColor = 'red';
-            errorDiv.innerHTML = `<h3>${nodeId}</h3><p style="color:red">Não encontrado</p>`;
-            nodeContainer.appendChild(errorDiv);
-            return nodeContainer;
-        }
-
-        const nodeDiv = document.createElement('div');
-        nodeDiv.className = 'node';
-        if (orphanNodeIds.has(nodeId)) nodeDiv.classList.add('orphan-node');
-
-        // Conteúdo visual do nó
-        // Adiciona um badge para o TYPE
-        let typeBadge = `<span style="background:#eee; padding:2px 5px; border-radius:3px; font-size:0.8em; margin-bottom:5px; display:inline-block;">${nodeData.type}</span>`;
-        let desc = nodeData.action_config?.message || nodeData.action_config?.prompt || (nodeData.type === 'if-else' ? 'Condicional' : 'Ação Interna');
-
-        nodeDiv.innerHTML = `
-            ${typeBadge}
-            <h3>${nodeId}</h3>
-            <p>${desc.substring(0, 50)}${desc.length > 50 ? '...' : ''}</p>
-        `;
-
-        nodeDiv.addEventListener('click', () => openNodeEditor(nodeId));
-        nodeContainer.appendChild(nodeDiv);
-
-        // Prevenção de Loop
-        if (visitedNodes.has(nodeId)) {
-            nodeDiv.style.borderStyle = "double";
-            nodeDiv.innerHTML += '<div style="color:orange; font-size:0.8em;">(Retorno/Loop)</div>';
-            return nodeContainer;
-        }
-        visitedNodes.add(nodeId);
-
-        // Renderizar Filhos
-        const transitions = getTransitions(nodeData);
-        if (transitions.length > 0) {
-            const childrenContainer = document.createElement('div');
-            childrenContainer.className = 'children-container';
-
-            transitions.forEach(transition => {
-                const transitionGroup = document.createElement('div');
-                transitionGroup.className = 'transition-group';
-
-                if (transition.label) {
-                    const conditionDiv = document.createElement('div');
-                    conditionDiv.className = 'transition-condition';
-                    conditionDiv.textContent = transition.label;
-                    transitionGroup.appendChild(conditionDiv);
-                }
-
-                // Recursão
-                // Importante: Passamos uma CÓPIA de visitedNodes para cada ramo, 
-                // para permitir que ramos diferentes usem os mesmos nós, mas detecte loops no próprio ramo.
-                const childElement = createNodeElement(transition.targetId, new Set(visitedNodes), orphanNodeIds);
-                transitionGroup.appendChild(childElement);
-                childrenContainer.appendChild(transitionGroup);
-            });
-            nodeContainer.appendChild(childrenContainer);
-        }
-
-        return nodeContainer;
-    }
-
-    /**
- * Gera o HTML dos campos baseado no tipo selecionado
- */
-    function renderConfigFields(type, currentConfig) {
-        const schema = CONFIG_SCHEMAS[type];
-
-        if (!schema) {
-            const jsonString = JSON.stringify(currentConfig, null, 2);
-            return `
-            <div class="dynamic-field-group">
-                <label>Configuração (JSON Puro)</label>
-                <textarea id="config-raw-json" class="dynamic-field" data-key="raw" rows="5">${jsonString}</textarea>
-                <small style="color: #666; display:block; margin-top:5px;">Este tipo não possui campos pré-definidos.</small>
-            </div>
-        `;
-        }
-
-        return schema.map(field => {
-            const value = currentConfig[field.key] || '';
-            let inputHtml = '';
-
-            // Determina se é required ou placeholder
-            const placeholder = field.placeholder || '';
-
-            if (field.type === 'select') {
-                const options = field.options.map(opt =>
-                    `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`
-                ).join('');
-                inputHtml = `<select id="config-${field.key}" class="dynamic-field" data-key="${field.key}">${options}</select>`;
-            } else if (field.type === 'textarea') {
-                let displayValue = value;
-                if (typeof value === 'object') {
-                    displayValue = JSON.stringify(value, null, 2);
-                }
-                inputHtml = `<textarea id="config-${field.key}" class="dynamic-field" data-key="${field.key}" rows="${field.rows || 3}" placeholder="${placeholder}">${displayValue}</textarea>`;
-            } else {
-                inputHtml = `<input type="text" id="config-${field.key}" class="dynamic-field" data-key="${field.key}" value="${value}" placeholder="${placeholder}">`;
-            }
-
-            // Retorna com a classe CSS 'dynamic-field-group'
-            return `
-            <div class="dynamic-field-group">
-                <label for="config-${field.key}">${field.label}</label>
-                ${inputHtml}
-            </div>
-        `;
-        }).join('');
-    }
-
-    /**
-     * Coleta os dados dos campos dinâmicos para salvar
-     */
-    function getConfigFromFields(type) {
-        const schema = CONFIG_SCHEMAS[type];
-
-        // Fallback: Se não tem schema, lê do textarea de JSON puro
-        if (!schema) {
-            const raw = document.getElementById('config-raw-json').value;
-            try {
-                return JSON.parse(raw || '{}');
-            } catch (e) {
-                throw new Error("Erro no JSON da Configuração: " + e.message);
-            }
-        }
-
-        // Coleta dados baseados no schema
-        const config = {};
-        const inputs = document.querySelectorAll('.dynamic-field');
-
-        inputs.forEach(input => {
-            const key = input.dataset.key;
-            let value = input.value;
-
-            // Tenta converter campos que parecem JSON (headers, body) de volta para objeto
-            // Verifica se o campo original no schema era 'textarea' e o valor parece objeto
-            const fieldDef = schema.find(f => f.key === key);
-            if (fieldDef && (fieldDef.key === 'headers' || fieldDef.key === 'body')) {
-                if (value.trim().startsWith('{')) {
-                    try { value = JSON.parse(value); } catch (e) { /* Deixa como string se falhar */ }
-                }
-            }
-
-            if (value !== '') {
-                config[key] = value;
-            }
-        });
-
-        return config;
-    }
-
-    // --- EDITOR ---
-    function openNodeEditor(nodeId) {
-        const isCreating = nodeId === null;
-
-        const defaultNode = {
-            id: "",
-            type: "fixed",
-            action_config: {},
-            pre_update: {},
-            post_update: {},
-            next: ""
-        };
-
-        // Clonagem simples para evitar referência direta antes de salvar
-        const nodeData = JSON.parse(JSON.stringify(isCreating ? defaultNode : flowMap[nodeId]));
-
-        // Dropdown de Tipos
-        const nodeTypes = ['fixed', 'input', 'output', 'api', 'if-else', 'llm'];
-        const typeOptions = nodeTypes.map(type => {
-            const isSelected = (nodeData.type || 'fixed') === type ? 'selected' : '';
-            return `<option value="${type}" ${isSelected}>${type}</option>`;
-        }).join('');
-
-        // JSONs auxiliares (Pre/Post Update) continuam como texto por enquanto
-        const preUpdate = JSON.stringify(nodeData.pre_update || {}, null, 2);
-        const postUpdate = JSON.stringify(nodeData.post_update || {}, null, 2);
-
-        // Renderiza o Modal
-        modalForm.innerHTML = `
-        <div class="form-group">
-            <label for="node-id">ID</label>
-            <input type="text" id="node-id" value="${nodeData.id}" ${isCreating ? '' : 'disabled'}>
-        </div>
-        
-        <div class="form-group">
-            <label for="node-type">Type</label>
-            <select id="node-type">
-                ${typeOptions}
-            </select>
-        </div>
-
-       <div class="action-config-wrapper">
-            <span class="action-config-title">Action Config</span>
-            <div id="action-config-container">
-                </div>
-        </div>
-        
-        <div class="form-group">
-            <label for="node-next">Next (Próximo Nó)</label>
-            <input type="text" id="node-next" value="${nodeData.next || ''}">
-            <small style="color:#888;">Para 'if-else', use os campos específicos acima.</small>
-        </div>
-
-        <div class="form-group"><label>Pre Update (JSON)</label><textarea id="node-pre-update">${preUpdate}</textarea></div>
-        <div class="form-group"><label>Post Update (JSON)</label><textarea id="node-post-update">${postUpdate}</textarea></div>
-
-        <button type="submit">${isCreating ? 'Criar' : 'Salvar'}</button>
-        `;
-
-        // 1. Renderiza os campos iniciais baseados no tipo atual
-        const configContainer = document.getElementById('action-config-container');
-        const typeSelect = document.getElementById('node-type');
-
-        // Função interna para atualizar a view
-        const updateView = () => {
-            const currentType = typeSelect.value;
-            // Se mudou o tipo, passamos um objeto vazio para não tentar encaixar config de API em LLM, 
-            // mas se for o tipo original, usamos os dados carregados.
-            const configToRender = (currentType === nodeData.type) ? nodeData.action_config : {};
-            configContainer.innerHTML = renderConfigFields(currentType, configToRender);
-        };
-
-        // Inicializa
-        updateView();
-
-        // 2. Adiciona Listener para mudança de tipo
-        typeSelect.addEventListener('change', updateView);
-
-        modal.classList.remove('hidden');
-    }
-
-    function closeNodeEditor() {
-        modal.classList.add('hidden');
-    }
-
-    closeButton.addEventListener('click', closeNodeEditor);
-    modal.addEventListener('click', (e) => { if (e.target === modal) closeNodeEditor(); });
-
-    modalForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const idInput = document.getElementById('node-id').value.trim();
-        const typeInput = document.getElementById('node-type').value;
-        const isCreating = !document.getElementById('node-id').disabled;
-
-        try {
-            if (!idInput) throw new Error("ID é obrigatório");
-
-            // NOVA LÓGICA DE COLETA DA CONFIGURAÇÃO
-            const actionConfig = getConfigFromFields(typeInput);
-
-            // Monta o objeto atualizado
-            const updatedNode = {
-                id: idInput,
-                type: typeInput,
-                next: document.getElementById('node-next').value || null,
-                action_config: actionConfig, // Usa o objeto coletado
-                pre_update: JSON.parse(document.getElementById('node-pre-update').value),
-                post_update: JSON.parse(document.getElementById('node-post-update').value)
-            };
-
-            if (!updatedNode.next) delete updatedNode.next;
-
-            if (isCreating) {
-                if (flowMap[idInput]) throw new Error("ID já existe");
-                flowMap[idInput] = updatedNode;
-                flowArray.push(updatedNode);
-            } else {
-                flowMap[idInput] = updatedNode;
-                const idx = flowArray.findIndex(n => n.id === idInput);
-                if (idx !== -1) flowArray[idx] = updatedNode;
-            }
-
-            closeNodeEditor();
-            initializeFlowView();
-
-        } catch (err) {
-            alert("Erro ao salvar: " + err.message);
-        }
-    });
-
-    // --- SALVAR ARQUIVO ---
-    saveVersionButton.addEventListener('click', () => {
-        if (!flowArray.length) {
-            alert('Nada para salvar.');
-            return;
-        }
+    varsManagerBtn.addEventListener('click', openVarsManager);
+    saveNodeBtn.addEventListener('click', handleSaveNode);
+    saveVarsBtn.addEventListener('click', handleSaveVars);
+
+    saveVersionBtn.addEventListener('click', () => {
+        if (!flowArray.length) return alert("Nada para salvar.");
         versionModal.classList.remove('hidden');
     });
 
-    versionModalClose.addEventListener('click', () => {
-        versionModal.classList.add('hidden');
-    });
-
-    versionForm.addEventListener('submit', (e) => {
+    document.getElementById('version-form').addEventListener('submit', (e) => {
         e.preventDefault();
-        const filename = document.getElementById('new-filename').value || 'flow_definition.json';
+        downloadJSON();
+    });
+});
 
-        // Reconstrói a estrutura raiz original
-        const finalJson = {
-            nodes: flowArray // O array atualizado
-        };
+// --- PROCESSAMENTO DE ARQUIVO ---
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
 
-        const blob = new Blob([JSON.stringify(finalJson, null, 4)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        versionModal.classList.add('hidden');
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const json = JSON.parse(e.target.result);
+            loadFlowData(json);
+        } catch (error) {
+            alert(`Erro JSON: ${error.message}`);
+        }
+    };
+    reader.readAsText(file);
+}
+
+function loadFlowData(json) {
+    globalEnvironments = json.environments || {};
+    if (json.nodes && Array.isArray(json.nodes)) {
+        flowArray = json.nodes;
+        flowMap = {};
+        flowArray.forEach(n => flowMap[n.id] = n);
+        startNodeId = flowArray.length > 0 ? flowArray[0].id : null;
+    } else {
+        alert("JSON inválido: falta array 'nodes'.");
+        return;
+    }
+    renderFlow();
+}
+
+// --- RENDERIZAÇÃO DO FLUXO ---
+function renderFlow() {
+    flowContainer.innerHTML = '';
+    if (!startNodeId && flowArray.length > 0) startNodeId = flowArray[0].id; // Fallback
+    if (!startNodeId) return;
+
+    // Identificar orfãos
+    const targetNodes = new Set();
+    flowArray.forEach(node => {
+        getTransitions(node).forEach(t => targetNodes.add(t.targetId));
     });
 
-});
+    const orphanIds = flowArray.map(n => n.id).filter(id => id !== startNodeId && !targetNodes.has(id));
+
+    // Renderizar Árvore Principal
+    const visited = new Set();
+    const mainTree = createNodeElement(startNodeId, visited);
+    flowContainer.appendChild(mainTree);
+
+    // Renderizar Orfãos
+    if (orphanIds.length > 0) {
+        const orphanDiv = document.createElement('div');
+        orphanDiv.id = 'orphan-container';
+        orphanDiv.innerHTML = '<h3 style="margin-left:20px; color:#777;">Nós Desconectados</h3>';
+        orphanIds.forEach(id => {
+            orphanDiv.appendChild(createNodeElement(id, new Set(), true));
+        });
+        flowContainer.appendChild(orphanDiv);
+    }
+}
+
+function getTransitions(node) {
+    const transitions = [];
+    if (node.type === 'if-else' && node.action_config) {
+        if (node.action_config.true_node) transitions.push({ targetId: node.action_config.true_node, label: 'TRUE' });
+        if (node.action_config.false_node) transitions.push({ targetId: node.action_config.false_node, label: 'FALSE' });
+    } else if (node.next) {
+        transitions.push({ targetId: node.next, label: null });
+    }
+    return transitions;
+}
+
+function createNodeElement(nodeId, visited, isOrphan = false) {
+    const nodeContainer = document.createElement('div');
+    nodeContainer.className = 'node-container';
+
+    const nodeData = flowMap[nodeId];
+    if (!nodeData) {
+        nodeContainer.innerHTML = `<div class="node" style="border-color:red">Erro: ${nodeId}</div>`;
+        return nodeContainer;
+    }
+
+    const nodeDiv = document.createElement('div');
+    nodeDiv.className = 'node';
+    if (isOrphan) nodeDiv.classList.add('orphan-node');
+
+    let typeLabel = nodeData.type.toUpperCase();
+    let detailText = nodeData.action_config?.message || '';
+
+    if (nodeData.type === 'if-else') {
+        typeLabel = "CONDICIONAL";
+        detailText = `<strong style="color:#a71d2a">${nodeData.action_config.condition || '?'}</strong>`;
+    } else if (nodeData.type === 'llm') {
+        detailText = (nodeData.action_config.prompt || '').substring(0, 40) + '...';
+    } else if (nodeData.type === 'api') {
+        detailText = `${nodeData.action_config.method || 'GET'} ${nodeData.action_config.url || ''}`;
+    }
+
+    nodeDiv.innerHTML = `
+        <div style="font-size:0.7em; color:#999; margin-bottom:5px;">${typeLabel}</div>
+        <h3>${nodeId}</h3>
+        <p>${detailText}</p>
+    `;
+    nodeDiv.onclick = () => openNodeEditor(nodeId);
+    nodeContainer.appendChild(nodeDiv);
+
+    if (visited.has(nodeId)) {
+        nodeDiv.style.borderStyle = "double";
+        return nodeContainer;
+    }
+    visited.add(nodeId);
+
+    const transitions = getTransitions(nodeData);
+    if (transitions.length > 0) {
+        const childrenContainer = document.createElement('div');
+        childrenContainer.className = 'children-container';
+
+        transitions.forEach(t => {
+            const group = document.createElement('div');
+            group.className = 'transition-group';
+
+            if (t.label) {
+                const badge = document.createElement('span');
+                badge.className = 'transition-condition';
+                badge.innerText = t.label;
+                if (t.label === 'TRUE') { badge.style.color = 'green'; badge.style.borderColor = 'lightgreen'; badge.style.backgroundColor = '#eaffea'; }
+                if (t.label === 'FALSE') { badge.style.color = 'red'; badge.style.borderColor = '#ffcccc'; badge.style.backgroundColor = '#fff5f5'; }
+                group.appendChild(badge);
+            }
+
+            group.appendChild(createNodeElement(t.targetId, new Set(visited)));
+            childrenContainer.appendChild(group);
+        });
+
+        nodeContainer.appendChild(childrenContainer);
+    }
+
+    return nodeContainer;
+}
+
+// --- HELPER PARA GERAR OPÇÕES DE NÓ ---
+function generateNodeOptions(selectedId) {
+    let options = `<option value="">-- Fim / Nenhum --</option>`;
+    Object.keys(flowMap).forEach(key => {
+        options += `<option value="${key}" ${key === selectedId ? 'selected' : ''}>${key}</option>`;
+    });
+    return options;
+}
+
+// --- EDITOR DE NÓ (COM COMBO BOX E LÓGICA IF-ELSE) ---
+function openNodeEditor(nodeId) {
+    const isCreating = (nodeId === null);
+    const nodeData = isCreating
+        ? { id: "", type: "fixed", action_config: {}, pre_update: {}, post_update: {}, next: "" }
+        : JSON.parse(JSON.stringify(flowMap[nodeId]));
+
+    const form = document.getElementById('node-editor-form');
+
+    // Gera opções para o dropdown principal de "Next"
+    const nextOptions = generateNodeOptions(nodeData.next);
+
+    form.innerHTML = `
+        <div class="form-group">
+            <label>ID do Nó</label>
+            <input type="text" id="edit-id" value="${nodeData.id}" ${!isCreating ? 'disabled' : ''}>
+        </div>
+        <div class="form-group">
+            <label>Tipo</label>
+            <select id="edit-type">
+                ${['fixed', 'input', 'output', 'api', 'if-else', 'llm'].map(t => `<option value="${t}" ${t === nodeData.type ? 'selected' : ''}>${t}</option>`).join('')}
+            </select>
+        </div>
+
+        <div class="action-config-wrapper" id="config-container">
+            </div>
+
+        <div class="form-group full-width" id="next-node-wrapper">
+            <label>Próximo Nó (Next)</label>
+            <select id="edit-next">
+                ${nextOptions}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Pre Update (Variáveis)</label>
+            <table class="vars-table" id="pre-update-table">
+                <thead><tr><th>Var</th><th>Valor</th><th></th></tr></thead>
+                <tbody></tbody>
+            </table>
+            <button type="button" class="btn-add" onclick="addNodeVarRow('pre-update-table')">+</button>
+        </div>
+
+        <div class="form-group">
+            <label>Post Update (Variáveis)</label>
+            <table class="vars-table" id="post-update-table">
+                <thead><tr><th>Var</th><th>Valor</th><th></th></tr></thead>
+                <tbody></tbody>
+            </table>
+            <button type="button" class="btn-add" onclick="addNodeVarRow('post-update-table')">+</button>
+        </div>
+    `;
+
+    const typeSelect = document.getElementById('edit-type');
+    const configContainer = document.getElementById('config-container');
+    const nextWrapper = document.getElementById('next-node-wrapper');
+
+    const renderConfig = () => {
+        const type = typeSelect.value;
+        const schema = CONFIG_SCHEMAS[type];
+        const currentConfig = (type === nodeData.type) ? nodeData.action_config : {};
+
+        // Lógica de Visibilidade do Next
+        if (type === 'if-else') {
+            nextWrapper.style.display = 'none';
+        } else {
+            nextWrapper.style.display = 'block';
+        }
+
+        if (!schema || schema.length === 0) {
+            configContainer.innerHTML = '<p style="color:#666; font-style:italic;">Sem configurações específicas.</p>';
+            return;
+        }
+
+        configContainer.innerHTML = schema.map(field => {
+            const val = currentConfig[field.key] || '';
+            let inputHtml = '';
+
+            if (field.type === 'select') {
+                inputHtml = `<select class="dyn-field" data-key="${field.key}">
+                    ${field.options.map(o => `<option ${o === val ? 'selected' : ''}>${o}</option>`).join('')}
+                </select>`;
+            }
+            // NOVO TIPO: node-select para dropdown de nós
+            else if (field.type === 'node-select') {
+                inputHtml = `<select class="dyn-field" data-key="${field.key}">
+                    ${generateNodeOptions(val)}
+                </select>`;
+            }
+            else if (field.type === 'textarea') {
+                const txtVal = typeof val === 'object' ? JSON.stringify(val) : val;
+                inputHtml = `<textarea class="dyn-field" data-key="${field.key}" rows="${field.rows}">${txtVal}</textarea>`;
+            } else {
+                inputHtml = `<input type="text" class="dyn-field" data-key="${field.key}" value="${val}" placeholder="${field.placeholder || ''}">`;
+            }
+            return `<div class="form-group"><label>${field.label}</label>${inputHtml}</div>`;
+        }).join('');
+    };
+
+    typeSelect.onchange = renderConfig;
+    renderConfig(); // Inicializa
+
+    renderNodeVars('pre-update-table', nodeData.pre_update);
+    renderNodeVars('post-update-table', nodeData.post_update);
+
+    nodeModal.classList.remove('hidden');
+}
+
+// ... Restante do código de Variáveis e Save (Mantido igual ao anterior, apenas replicando helpers necessários) ...
+
+window.addNodeVarRow = function (tableId, key = '', value = '') {
+    const tbody = document.querySelector(`#${tableId} tbody`);
+    const tr = document.createElement('tr');
+
+    const keys = Object.keys(globalEnvironments);
+    let options = `<option value="">-- Selecione --</option>`;
+
+    const allKeys = new Set([...keys, key]);
+    allKeys.forEach(k => {
+        if (!k) return;
+        options += `<option value="${k}" ${k === key ? 'selected' : ''}>${k}</option>`;
+    });
+
+    tr.innerHTML = `
+        <td><select class="var-select var-row-select">${options}</select></td>
+        <td><input type="text" class="var-val-input var-row-input" value="${value}"></td>
+        <td style="text-align:center"><button type="button" class="btn-icon btn-delete" onclick="this.closest('tr').remove()">x</button></td>
+    `;
+    tbody.appendChild(tr);
+};
+
+function renderNodeVars(tableId, dataObj) {
+    if (!dataObj) return;
+    Object.keys(dataObj).forEach(k => {
+        let val = dataObj[k];
+        if (val === null) val = "null";
+        addNodeVarRow(tableId, k, val);
+    });
+}
+
+// --- GERENCIADOR DE VARIÁVEIS GLOBAIS (Mantido) ---
+function openVarsManager() {
+    const tbody = document.querySelector('#global-vars-table tbody');
+    tbody.innerHTML = '';
+    Object.keys(globalEnvironments).forEach(key => addGlobalVarRow(key, globalEnvironments[key]));
+    varsModal.classList.remove('hidden');
+}
+
+function addGlobalVarRow(key = '', value = '') {
+    const tbody = document.querySelector('#global-vars-table tbody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+        <td><input type="text" class="var-row-input key-input" value="${key}" placeholder="NOME_VAR"></td>
+        <td><input type="text" class="var-row-input val-input" value="${value}" placeholder="Valor Inicial"></td>
+        <td style="text-align:center;"><button class="btn-icon btn-delete" onclick="this.closest('tr').remove()">🗑</button></td>
+    `;
+    tbody.appendChild(tr);
+}
+
+document.getElementById('add-global-var-btn').onclick = () => addGlobalVarRow();
+
+function handleSaveVars() {
+    const newEnv = {};
+    const rows = document.querySelectorAll('#global-vars-table tbody tr');
+    rows.forEach(row => {
+        const key = row.querySelector('.key-input').value.trim();
+        const val = row.querySelector('.val-input').value;
+        if (key) newEnv[key] = val;
+    });
+    globalEnvironments = newEnv;
+    varsModal.classList.add('hidden');
+    alert('Variáveis atualizadas!');
+}
+
+function handleSaveNode() {
+    const id = document.getElementById('edit-id').value.trim();
+    if (!id) return alert("ID obrigatório");
+
+    const type = document.getElementById('edit-type').value;
+    const nextSelect = document.getElementById('edit-next');
+    // Se estiver oculto (if-else), ignoramos o next, senão pegamos o valor
+    const next = (nextSelect.offsetParent !== null) ? nextSelect.value : null;
+
+    const actionConfig = {};
+    document.querySelectorAll('#config-container .dyn-field').forEach(field => {
+        let val = field.value;
+        if (field.dataset.key === 'headers' || field.dataset.key === 'body') {
+            try { val = JSON.parse(val); } catch (e) { }
+        }
+        actionConfig[field.dataset.key] = val;
+    });
+
+    const collectVars = (tableId) => {
+        const result = {};
+        document.querySelectorAll(`#${tableId} tbody tr`).forEach(tr => {
+            const key = tr.querySelector('.var-select').value;
+            let val = tr.querySelector('.var-val-input').value;
+            if (key) {
+                if (val === "null") val = null;
+                result[key] = val;
+            }
+        });
+        return result;
+    };
+
+    const newNode = {
+        id,
+        type,
+        action_config: actionConfig,
+        pre_update: collectVars('pre-update-table'),
+        post_update: collectVars('post-update-table')
+    };
+    if (next) newNode.next = next;
+
+    flowMap[id] = newNode;
+    const idx = flowArray.findIndex(n => n.id === id);
+    if (idx >= 0) flowArray[idx] = newNode;
+    else flowArray.push(newNode);
+
+    nodeModal.classList.add('hidden');
+    renderFlow();
+}
+
+function downloadJSON() {
+    const filename = document.getElementById('new-filename').value || 'flow.json';
+    const finalObj = {
+        environments: globalEnvironments,
+        nodes: flowArray
+    };
+    const blob = new Blob([JSON.stringify(finalObj, null, 4)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    versionModal.classList.add('hidden');
+}
