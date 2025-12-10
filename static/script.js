@@ -4,6 +4,32 @@ const versionModal = document.getElementById('version-modal');
 const versionForm = document.getElementById('version-form');
 const versionModalClose = document.querySelector('.version-modal-close');
 
+
+const CONFIG_SCHEMAS = {
+    'api': [
+        { key: 'url', label: 'URL da API', type: 'text', placeholder: 'https://api.exemplo.com/...' },
+        { key: 'method', label: 'Método HTTP', type: 'select', options: ['GET', 'POST', 'PUT', 'DELETE'] },
+        { key: 'headers', label: 'Headers (JSON)', type: 'textarea', placeholder: '{"Authorization": "..."}' },
+        { key: 'body', label: 'Body (JSON)', type: 'textarea', placeholder: '{ "chave": "valor" }' }
+    ],
+    'if-else': [
+        { key: 'condition', label: 'Condição (Jinja2)', type: 'text', placeholder: 'context.valor > 10' },
+        { key: 'true_node', label: 'Ir para se Verdadeiro (ID)', type: 'text' },
+        { key: 'false_node', label: 'Ir para se Falso (ID)', type: 'text' }
+    ],
+    'llm': [
+        { key: 'prompt', label: 'Prompt / Instrução', type: 'textarea', rows: 5 },
+        { key: 'model', label: 'Modelo (Opcional)', type: 'text', placeholder: 'gpt-4o' }
+    ],
+    'output': [
+        { key: 'message', label: 'Mensagem de Saída', type: 'textarea', rows: 3 }
+    ],
+    'input': [
+        { key: 'variable', label: 'Nome da Variável (Opcional)', type: 'text' }
+    ],
+    // 'fixed' e outros não listados usarão o modo "Raw JSON" padrão
+};
+
 // Aguarda o carregamento completo do HTML
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -226,41 +252,128 @@ document.addEventListener('DOMContentLoaded', () => {
         return nodeContainer;
     }
 
+    /**
+ * Gera o HTML dos campos baseado no tipo selecionado
+ */
+    function renderConfigFields(type, currentConfig) {
+        const schema = CONFIG_SCHEMAS[type];
+
+        if (!schema) {
+            const jsonString = JSON.stringify(currentConfig, null, 2);
+            return `
+            <div class="dynamic-field-group">
+                <label>Configuração (JSON Puro)</label>
+                <textarea id="config-raw-json" class="dynamic-field" data-key="raw" rows="5">${jsonString}</textarea>
+                <small style="color: #666; display:block; margin-top:5px;">Este tipo não possui campos pré-definidos.</small>
+            </div>
+        `;
+        }
+
+        return schema.map(field => {
+            const value = currentConfig[field.key] || '';
+            let inputHtml = '';
+
+            // Determina se é required ou placeholder
+            const placeholder = field.placeholder || '';
+
+            if (field.type === 'select') {
+                const options = field.options.map(opt =>
+                    `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`
+                ).join('');
+                inputHtml = `<select id="config-${field.key}" class="dynamic-field" data-key="${field.key}">${options}</select>`;
+            } else if (field.type === 'textarea') {
+                let displayValue = value;
+                if (typeof value === 'object') {
+                    displayValue = JSON.stringify(value, null, 2);
+                }
+                inputHtml = `<textarea id="config-${field.key}" class="dynamic-field" data-key="${field.key}" rows="${field.rows || 3}" placeholder="${placeholder}">${displayValue}</textarea>`;
+            } else {
+                inputHtml = `<input type="text" id="config-${field.key}" class="dynamic-field" data-key="${field.key}" value="${value}" placeholder="${placeholder}">`;
+            }
+
+            // Retorna com a classe CSS 'dynamic-field-group'
+            return `
+            <div class="dynamic-field-group">
+                <label for="config-${field.key}">${field.label}</label>
+                ${inputHtml}
+            </div>
+        `;
+        }).join('');
+    }
+
+    /**
+     * Coleta os dados dos campos dinâmicos para salvar
+     */
+    function getConfigFromFields(type) {
+        const schema = CONFIG_SCHEMAS[type];
+
+        // Fallback: Se não tem schema, lê do textarea de JSON puro
+        if (!schema) {
+            const raw = document.getElementById('config-raw-json').value;
+            try {
+                return JSON.parse(raw || '{}');
+            } catch (e) {
+                throw new Error("Erro no JSON da Configuração: " + e.message);
+            }
+        }
+
+        // Coleta dados baseados no schema
+        const config = {};
+        const inputs = document.querySelectorAll('.dynamic-field');
+
+        inputs.forEach(input => {
+            const key = input.dataset.key;
+            let value = input.value;
+
+            // Tenta converter campos que parecem JSON (headers, body) de volta para objeto
+            // Verifica se o campo original no schema era 'textarea' e o valor parece objeto
+            const fieldDef = schema.find(f => f.key === key);
+            if (fieldDef && (fieldDef.key === 'headers' || fieldDef.key === 'body')) {
+                if (value.trim().startsWith('{')) {
+                    try { value = JSON.parse(value); } catch (e) { /* Deixa como string se falhar */ }
+                }
+            }
+
+            if (value !== '') {
+                config[key] = value;
+            }
+        });
+
+        return config;
+    }
+
     // --- EDITOR ---
     function openNodeEditor(nodeId) {
         const isCreating = nodeId === null;
 
-        // Estrutura padrão
         const defaultNode = {
             id: "",
-            type: "fixed", // Valor padrão
+            type: "fixed",
             action_config: {},
             pre_update: {},
             post_update: {},
             next: ""
         };
 
-        const nodeData = isCreating ? defaultNode : flowMap[nodeId];
+        // Clonagem simples para evitar referência direta antes de salvar
+        const nodeData = JSON.parse(JSON.stringify(isCreating ? defaultNode : flowMap[nodeId]));
 
-        // --- NOVA LÓGICA DO DROPDOWN ---
-        // 1. Defina os tipos permitidos
+        // Dropdown de Tipos
         const nodeTypes = ['fixed', 'input', 'output', 'api', 'if-else', 'llm'];
-
-        // 2. Gere as opções HTML dinamicamente, marcando o atual como 'selected'
         const typeOptions = nodeTypes.map(type => {
             const isSelected = (nodeData.type || 'fixed') === type ? 'selected' : '';
             return `<option value="${type}" ${isSelected}>${type}</option>`;
         }).join('');
-        // -------------------------------
 
-        const actionConfig = JSON.stringify(nodeData.action_config || {}, null, 2);
+        // JSONs auxiliares (Pre/Post Update) continuam como texto por enquanto
         const preUpdate = JSON.stringify(nodeData.pre_update || {}, null, 2);
         const postUpdate = JSON.stringify(nodeData.post_update || {}, null, 2);
 
+        // Renderiza o Modal
         modalForm.innerHTML = `
         <div class="form-group">
             <label for="node-id">ID</label>
-            <input type="text" id="node-id" value="${isCreating ? '' : nodeData.id}" ${isCreating ? '' : 'disabled'}>
+            <input type="text" id="node-id" value="${nodeData.id}" ${isCreating ? '' : 'disabled'}>
         </div>
         
         <div class="form-group">
@@ -269,28 +382,43 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${typeOptions}
             </select>
         </div>
+
+       <div class="action-config-wrapper">
+            <span class="action-config-title">Action Config</span>
+            <div id="action-config-container">
+                </div>
+        </div>
+        
         <div class="form-group">
-            <label for="node-next">Next (ID do próximo nó - vazio se for if-else)</label>
+            <label for="node-next">Next (Próximo Nó)</label>
             <input type="text" id="node-next" value="${nodeData.next || ''}">
+            <small style="color:#888;">Para 'if-else', use os campos específicos acima.</small>
         </div>
 
-        <div class="form-group">
-            <label for="node-action-config">Action Config (JSON)</label>
-            <textarea id="node-action-config">${actionConfig}</textarea>
-        </div>
-        
-        <div class="form-group">
-            <label for="node-pre-update">Pre Update (JSON)</label>
-            <textarea id="node-pre-update">${preUpdate}</textarea>
-        </div>
-        
-        <div class="form-group">
-            <label for="node-post-update">Post Update (JSON)</label>
-            <textarea id="node-post-update">${postUpdate}</textarea>
-        </div>
+        <div class="form-group"><label>Pre Update (JSON)</label><textarea id="node-pre-update">${preUpdate}</textarea></div>
+        <div class="form-group"><label>Post Update (JSON)</label><textarea id="node-post-update">${postUpdate}</textarea></div>
 
         <button type="submit">${isCreating ? 'Criar' : 'Salvar'}</button>
         `;
+
+        // 1. Renderiza os campos iniciais baseados no tipo atual
+        const configContainer = document.getElementById('action-config-container');
+        const typeSelect = document.getElementById('node-type');
+
+        // Função interna para atualizar a view
+        const updateView = () => {
+            const currentType = typeSelect.value;
+            // Se mudou o tipo, passamos um objeto vazio para não tentar encaixar config de API em LLM, 
+            // mas se for o tipo original, usamos os dados carregados.
+            const configToRender = (currentType === nodeData.type) ? nodeData.action_config : {};
+            configContainer.innerHTML = renderConfigFields(currentType, configToRender);
+        };
+
+        // Inicializa
+        updateView();
+
+        // 2. Adiciona Listener para mudança de tipo
+        typeSelect.addEventListener('change', updateView);
 
         modal.classList.remove('hidden');
     }
@@ -305,38 +433,39 @@ document.addEventListener('DOMContentLoaded', () => {
     modalForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const idInput = document.getElementById('node-id').value.trim();
+        const typeInput = document.getElementById('node-type').value;
         const isCreating = !document.getElementById('node-id').disabled;
 
         try {
             if (!idInput) throw new Error("ID é obrigatório");
 
+            // NOVA LÓGICA DE COLETA DA CONFIGURAÇÃO
+            const actionConfig = getConfigFromFields(typeInput);
+
             // Monta o objeto atualizado
             const updatedNode = {
                 id: idInput,
-                type: document.getElementById('node-type').value,
-                next: document.getElementById('node-next').value || null, // Se vazio, vira null ou remove
-                action_config: JSON.parse(document.getElementById('node-action-config').value),
+                type: typeInput,
+                next: document.getElementById('node-next').value || null,
+                action_config: actionConfig, // Usa o objeto coletado
                 pre_update: JSON.parse(document.getElementById('node-pre-update').value),
                 post_update: JSON.parse(document.getElementById('node-post-update').value)
             };
 
-            // Remove next se for null
             if (!updatedNode.next) delete updatedNode.next;
 
             if (isCreating) {
                 if (flowMap[idInput]) throw new Error("ID já existe");
                 flowMap[idInput] = updatedNode;
-                flowArray.push(updatedNode); // Adiciona ao array original também
+                flowArray.push(updatedNode);
             } else {
-                // Atualiza o mapa
                 flowMap[idInput] = updatedNode;
-                // Atualiza o array original (encontra o índice e substitui)
                 const idx = flowArray.findIndex(n => n.id === idInput);
                 if (idx !== -1) flowArray[idx] = updatedNode;
             }
 
             closeNodeEditor();
-            initializeFlowView(); // Re-renderiza
+            initializeFlowView();
 
         } catch (err) {
             alert("Erro ao salvar: " + err.message);
